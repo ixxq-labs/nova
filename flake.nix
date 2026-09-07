@@ -102,7 +102,7 @@
 
             meta = {
               description = "A fast, customizable zsh prompt renderer.";
-              homepage = "https://github.com/xrryx-labs/nova";
+              homepage = "https://github.com/xlastz-labs/nova";
               license = pkgs.lib.licenses.mit;
               mainProgram = "nova";
             };

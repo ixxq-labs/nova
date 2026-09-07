@@ -24,13 +24,13 @@ work after the first GitHub Release is published.
 ### Shell Installer
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/xrryx-labs/nova/releases/latest/download/nova-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/xlastz-labs/nova/releases/latest/download/nova-installer.sh | sh
 ```
 
 ### Homebrew
 
 ```sh
-brew install xrryx-labs/tap/nova
+brew install xlastz-labs/tap/nova
 ```
 
 ### Nix
@@ -38,13 +38,13 @@ brew install xrryx-labs/tap/nova
 Run without installing:
 
 ```sh
-nix run github:xrryx-labs/nova -- --help
+nix run github:xlastz-labs/nova -- --help
 ```
 
 Install into your profile:
 
 ```sh
-nix profile install github:xrryx-labs/nova
+nix profile install github:xlastz-labs/nova
 ```
 
 ### mise
@@ -52,7 +52,7 @@ nix profile install github:xrryx-labs/nova
 Use the GitHub backend:
 
 ```sh
-mise use -g github:xrryx-labs/nova@latest
+mise use -g github:xlastz-labs/nova@latest
 ```
 
 Nova does not document the `ubi` backend because mise warns that it is
@@ -106,7 +106,7 @@ Start from the complete example:
 nova_config="${XDG_CONFIG_HOME:-$HOME/.config}/nova/config.toml"
 mkdir -p "$(dirname "$nova_config")"
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/xrryx-labs/nova/main/examples/config.toml \
+  https://raw.githubusercontent.com/xlastz-labs/nova/main/examples/config.toml \
   -o "$nova_config"
 nova check --config "$nova_config"
 ```

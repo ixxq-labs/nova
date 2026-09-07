@@ -14,7 +14,7 @@ Cargo can also install Nova directly from source when you intentionally want a
 development build:
 
 ```sh
-cargo install --git https://github.com/xrryx-labs/nova
+cargo install --git https://github.com/xlastz-labs/nova
 ```
 
 ## Checks
@@ -77,12 +77,12 @@ Releases are built by cargo-dist from version tags such as `v0.1.0`.
 The release workflow publishes:
 
 - shell installer: `nova-installer.sh`
-- Homebrew formula: `xrryx-labs/homebrew-tap`
+- Homebrew formula: `xlastz-labs/homebrew-tap`
 - macOS and Linux archives for x86_64 and aarch64
 - source archive and checksums
 
 Before the first release, maintainers must create the
-`xrryx-labs/homebrew-tap` repository and add a `HOMEBREW_TAP_TOKEN` repository
+`xlastz-labs/homebrew-tap` repository and add a `HOMEBREW_TAP_TOKEN` repository
 secret with write access to that tap.
 
 Regenerate the release workflow after cargo-dist configuration changes, then pin

@@ -6,8 +6,8 @@ rust-version = "1.88"
 license = "MIT"
 readme = "README.md"
 description = "A fast, customizable zsh prompt renderer."
-homepage = "https://github.com/lemtoc-labs/nova"
-repository = "https://github.com/lemtoc-labs/nova"
+homepage = "https://github.com/xrryx-labs/nova"
+repository = "https://github.com/xrryx-labs/nova"
 keywords = ["zsh", "prompt", "shell", "terminal", "async"]
 categories = ["command-line-utilities"]
 

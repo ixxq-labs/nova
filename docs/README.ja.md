@@ -27,13 +27,13 @@ command は初回 GitHub Release の publish 後に使えます。
 ### Shell Installer
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/lemtoc-labs/nova/releases/latest/download/nova-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/xrryx-labs/nova/releases/latest/download/nova-installer.sh | sh
 ```
 
 ### Homebrew
 
 ```sh
-brew install lemtoc-labs/tap/nova
+brew install xrryx-labs/tap/nova
 ```
 
 ### Nix
@@ -41,13 +41,13 @@ brew install lemtoc-labs/tap/nova
 install せずに実行:
 
 ```sh
-nix run github:lemtoc-labs/nova -- --help
+nix run github:xrryx-labs/nova -- --help
 ```
 
 profile に install:
 
 ```sh
-nix profile install github:lemtoc-labs/nova
+nix profile install github:xrryx-labs/nova
 ```
 
 ### mise
@@ -55,7 +55,7 @@ nix profile install github:lemtoc-labs/nova
 GitHub backend を使います:
 
 ```sh
-mise use -g github:lemtoc-labs/nova@latest
+mise use -g github:xrryx-labs/nova@latest
 ```
 
 `ubi` backend は mise 側で deprecated warning が出るため、Nova では案内しま
@@ -109,7 +109,7 @@ NOVA_CONFIG=/path/to/config.toml
 nova_config="${XDG_CONFIG_HOME:-$HOME/.config}/nova/config.toml"
 mkdir -p "$(dirname "$nova_config")"
 curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/lemtoc-labs/nova/main/examples/config.toml \
+  https://raw.githubusercontent.com/xrryx-labs/nova/main/examples/config.toml \
   -o "$nova_config"
 nova check --config "$nova_config"
 ```

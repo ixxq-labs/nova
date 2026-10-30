@@ -357,11 +357,19 @@ _nova_marks_commands() {
   [[ $PROMPT == *$'\e]133;A'* ]]
 }
 
+# Straight to the terminal, so redirected stdout (`exec >log`) captures no
+# integration bytes and the terminal still sees command boundaries.
+_nova_emit_mark() {
+  [[ -n ${TTY:-} ]] || return 0
+  print -nr -- "$1" 2>/dev/null >$TTY
+  return 0
+}
+
 _nova_preexec() {
   emulate -L zsh
   _nova_cmd_start=${EPOCHREALTIME:-}
   if _nova_marks_commands; then
-    print -nr -- $'\e]133;C\a'
+    _nova_emit_mark $'\e]133;C\a'
   fi
   # Keep hook status clean for other preexec hooks and status-checking tools.
   return 0
@@ -381,7 +389,7 @@ _nova_precmd() {
   _nova_last_exit_status=$exit_status
   _nova_last_duration_ms=$duration_ms
   if [[ -n ${_nova_cmd_start:-} ]] && _nova_marks_commands; then
-    print -nr -- $'\e]133;D;'"$exit_status"$'\a'
+    _nova_emit_mark $'\e]133;D;'"$exit_status"$'\a'
   fi
 
   _nova_ensure_worker || {

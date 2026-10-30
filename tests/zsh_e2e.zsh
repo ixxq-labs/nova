@@ -90,8 +90,9 @@ wait_for_file() {
   local -F deadline=$(( EPOCHREALTIME + 10 ))
 
   while (( EPOCHREALTIME < deadline )); do
+    drain_output
     [[ -s $path ]] && return 0
-    zselect -t 5 >/dev/null 2>&1 || true
+    zselect -t 5 -r $pty_fd >/dev/null 2>&1 || true
   done
 
   fail "timed out waiting for state file ${(qqq)path}"
@@ -182,7 +183,10 @@ checkpoint_output
 zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"'
 zpty -w nova_e2e 'print -r -- "RELOADED_${:-OK}"'
 wait_for_output 'RELOADED_OK' 'the re-sourced init script'
+# The next prompt may already be in the transcript, so submit a fresh line to
+# wait on instead of racing for the one after RELOADED_OK.
 checkpoint_output
+zpty -w nova_e2e ':'
 wait_for_output "$main_marker" 'the prompt after re-sourcing init'
 typeset -a runtime_dirs=("$temp_dir"/nova-*(N/))
 (( ${#runtime_dirs} == 1 )) || \

@@ -264,7 +264,7 @@ zpty -w nova_e2e 'print -r -- "OSC_${:-DONE}"; false'
 wait_for_output 'OSC_DONE' 'the command used to check terminal marks'
 wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/repo\a.*\e\\]133;A\a' \
   'OSC 133 command marks and the OSC 7 cwd report'
-print -r -- 'ok 5 - terminal integration marks commands and reports the cwd'
+print -r -- 'ok 6 - terminal integration marks commands and reports the cwd'
 
 
 
@@ -276,7 +276,7 @@ zpty -w -n nova_e2e $'\x03'
 # zsh redraws without precmd after Ctrl-C: the collapsed prompt comes first
 # (no branch before the marker), then line-init restores the full prompt.
 wait_for_match "${main_marker}.*${branch_marker}.*${main_marker}" 'the collapsed then restored prompt after Ctrl-C'
-print -r -- 'ok 6 - interrupted lines collapse to the transient prompt'
+print -r -- 'ok 7 - interrupted lines collapse to the transient prompt'
 
 
 
@@ -296,7 +296,7 @@ wait_for_match "$gen_b_pattern" 'the generation after resizing'
 # One for the command's precmd, at least one more for the SIGWINCH re-render.
 (( match[1] >= gen_before + 2 )) || \
   fail "resize did not re-render the prompt (generation $gen_before -> $match[1])"
-print -r -- 'ok 7 - terminal resize re-renders the prompt'
+print -r -- 'ok 8 - terminal resize re-renders the prompt'
 
 
 
@@ -304,4 +304,4 @@ kill -KILL "$shell_pid"
 wait_for_shell_exit
 session_active=0
 wait_for_worker_cleanup
-print -r -- 'ok 8 - killed shell leaves no worker or runtime directory'
+print -r -- 'ok 9 - killed shell leaves no worker or runtime directory'

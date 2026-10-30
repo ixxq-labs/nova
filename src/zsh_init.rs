@@ -213,7 +213,9 @@ mod tests {
             .expect("load guard");
 
         assert!(guard.contains("local prepared='/tmp/nova-1-abc'"));
-        assert!(guard.contains("$prepared != ${_nova_runtime_dir:-}"));
+        assert!(
+            guard.contains("${prepared:t} == nova-${$}-* && $prepared != ${_nova_runtime_dir:-}")
+        );
         assert!(guard.contains("zf_rm -rf -- \"$prepared\""));
     }
 

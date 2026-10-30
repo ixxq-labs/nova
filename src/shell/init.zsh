@@ -4,7 +4,7 @@ if [[ -n ${_NOVA_ZSH_LOADED:-} ]]; then
   # A re-sourced init prepared a directory that the loaded session never uses.
   () {
     local prepared=@NOVA_RUNTIME_DIR@
-    [[ -n $prepared && ${prepared:t} == nova-* && $prepared != ${_nova_runtime_dir:-} ]] || return 0
+    [[ ${prepared:t} == nova-${$}-* && $prepared != ${_nova_runtime_dir:-} ]] || return 0
     if (( $+builtins[zf_rm] )); then
       zf_rm -rf -- "$prepared" 2>/dev/null
     else

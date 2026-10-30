@@ -6,23 +6,13 @@ All notable user-facing changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-31
+
 ### Added
 
 - `layout.style = "capsule"` draws each segment on a rounded Nerd Font pill
   colored by its `style.bg` (a neutral gray when unset). The prompt character
   stays bare, and pill caps and padding count toward truncation widths.
-
-### Fixed
-
-- Renamed or copied files whose original path starts with `? `, `1 `, or `u `
-  no longer add a phantom entry to `git_status` (#39).
-- Control characters in `layout.separator` are stripped instead of corrupting
-  the prompt, and `nova check` warns about them (#40).
-
-## [0.4.0] - 2026-10-31
-
-### Added
-
 - Custom command segments: any `[segments.<id>]` with `command` becomes an
   async segment showing the command's first output line, with optional
   `detect` markers, `icon`, `style`, `ttl_ms`, and `timeout_ms`.
@@ -59,6 +49,10 @@ All notable user-facing changes are documented here. The format follows
 
 ### Fixed
 
+- Renamed or copied files whose original path starts with `? `, `1 `, or `u `
+  no longer add a phantom entry to `git_status` (#39).
+- Control characters in `layout.separator` are stripped instead of corrupting
+  the prompt, and `nova check` warns about them (#40).
 - Re-sourcing `.zshrc` no longer skips everything after `eval "$(nova init zsh)"`:
   the load guard returned from the `eval`, which ended the sourced file.
 - Timed-out runtime and command probes also stop the processes they started,

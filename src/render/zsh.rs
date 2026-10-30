@@ -95,9 +95,11 @@ pub fn lower_capsule(segment: &SegmentContent, default_bg: &str) -> String {
             style: segment.style.clone(),
         }]
     };
+    // A part without its own bg (e.g. a duration prefix) must not turn the pill gray.
     let bg = parts
-        .first()
-        .and_then(|part| part.style.bg.clone())
+        .iter()
+        .find_map(|part| part.style.bg.clone())
+        .or_else(|| segment.style.bg.clone())
         .unwrap_or_else(|| default_bg.to_string());
     let cap = Style {
         fg: Some(bg.clone()),
@@ -335,6 +337,32 @@ mod tests {
             "a disabled transient prompt stays empty"
         );
         assert!(output.prompt.starts_with("%{\x1b]7;file:///tmp\x07%}"));
+    }
+
+    #[test]
+    fn capsule_takes_its_color_from_any_part_with_a_background() {
+        let segment = SegmentContent::from_parts(
+            "duration",
+            vec![
+                SegmentPart::new("+", Style::default()),
+                SegmentPart::new(
+                    "2s",
+                    Style {
+                        bg: Some("blue".to_string()),
+                        ..Style::default()
+                    },
+                ),
+            ],
+        );
+
+        let lowered = lower_capsule(&segment, "238");
+
+        assert!(lowered.starts_with("%{\x1b[34m%}\u{e0b6}"), "{lowered:?}");
+        assert!(
+            lowered.contains("%{\x1b[44m%}+"),
+            "the prefix sits on the pill: {lowered:?}"
+        );
+        assert!(!lowered.contains("238"));
     }
 
     #[test]

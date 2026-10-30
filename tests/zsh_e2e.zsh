@@ -115,8 +115,9 @@ wait_for_file() {
   local -F deadline=$(( EPOCHREALTIME + 10 ))
 
   while (( EPOCHREALTIME < deadline )); do
+    drain_output
     [[ -s $path ]] && return 0
-    zselect -t 5 >/dev/null 2>&1 || true
+    zselect -t 5 -r $pty_fd >/dev/null 2>&1 || true
   done
 
   fail "timed out waiting for state file ${(qqq)path}"
@@ -244,6 +245,18 @@ wait_for_output 'TRANSIENT=<NOVA_E2E_MAIN> |>' 'the transient prompt during comm
 wait_for_output "$main_marker" 'the full prompt after the command'
 print -r -- 'ok 4 - accepted lines collapse to the transient prompt'
 
+drain_for 0.3
+zpty -w -n nova_e2e 'echo cancelled-line'
+wait_for_output 'cancelled-line' 'the typed but unsent line'
+checkpoint_output
+zpty -w -n nova_e2e $'\x03'
+# zsh redraws without precmd after Ctrl-C: the collapsed prompt comes first
+# (no branch before the marker), then line-init restores the full prompt.
+wait_for_match "${main_marker}.*${branch_marker}.*${main_marker}" 'the collapsed then restored prompt after Ctrl-C'
+print -r -- 'ok 5 - interrupted lines collapse to the transient prompt'
+
+
+
 checkpoint_output
 typeset -g gen_a_pattern='GEN_A=<([0-9]+)>' gen_b_pattern='GEN_B=<([0-9]+)[|]40>'
 zpty -w nova_e2e 'print -r -- "$TTY" >| "$NOVA_E2E_STATE/tty"; print -r -- "GEN_A=<$_nova_last_applied_gen>"'
@@ -260,7 +273,7 @@ wait_for_match "$gen_b_pattern" 'the generation after resizing'
 # One for the command's precmd, at least one more for the SIGWINCH re-render.
 (( match[1] >= gen_before + 2 )) || \
   fail "resize did not re-render the prompt (generation $gen_before -> $match[1])"
-print -r -- 'ok 5 - terminal resize re-renders the prompt'
+print -r -- 'ok 6 - terminal resize re-renders the prompt'
 
 
 
@@ -268,4 +281,4 @@ kill -KILL "$shell_pid"
 wait_for_shell_exit
 session_active=0
 wait_for_worker_cleanup
-print -r -- 'ok 6 - killed shell leaves no worker or runtime directory'
+print -r -- 'ok 7 - killed shell leaves no worker or runtime directory'

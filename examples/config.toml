@@ -208,3 +208,20 @@ main = "❯"
 # `characters.vi_command` wins in vi command mode. `vicmd` is accepted as a
 # compatibility alias.
 vi_command = "❮"
+
+# Custom command segments: any [segments.<id>] table with `command` becomes an
+# async segment. Add the id to a layout list to show it. The command runs with
+# `sh -c` in the prompt's directory and PATH, never blocks the prompt, and shows
+# the first non-empty output line. Empty output or a failing exit status hides
+# it. `command` on a built-in segment id is ignored.
+#
+# [segments.kube]
+# command = "kubectl config current-context"
+# # Optional: only run when one of these names exists in the current directory.
+# detect = ["Chart.yaml", "k8s"]
+# icon = "☸"
+# style = { fg = "blue", bold = false }
+# # Defaults: refresh on every prompt (the cached value shows meanwhile) and a
+# # 1000 ms timeout.
+# ttl_ms = 5000
+# timeout_ms = 1000

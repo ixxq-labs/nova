@@ -89,6 +89,12 @@ pub struct LineConfig {
 pub struct SegmentConfig {
     pub character: Option<String>,
     pub characters: BTreeMap<String, String>,
+    /// Turns `[segments.<id>]` into an async segment showing this `sh -c` command's
+    /// first output line.
+    pub command: Option<String>,
+    /// File or directory names in the cwd; when non-empty, `command` only runs if
+    /// one of them exists.
+    pub detect: Vec<String>,
     pub icon: Option<String>,
     pub icons: BTreeMap<String, String>,
     pub loading: Option<String>,
@@ -155,6 +161,8 @@ impl Config {
     }
 
     pub fn warnings(&self, known_segment_ids: &[&str]) -> Vec<ConfigWarning> {
+        let is_known =
+            |id: &str| known_segment_ids.contains(&id) || self.segment(id).command.is_some();
         let mut warnings = self
             .unknown_keys
             .iter()
@@ -165,7 +173,7 @@ impl Config {
         let mut seen = BTreeSet::new();
 
         for (location, segment) in self.layout_segments() {
-            if known_segment_ids.contains(&segment) {
+            if is_known(segment) {
                 continue;
             }
 
@@ -178,7 +186,7 @@ impl Config {
         }
 
         for segment_id in self.segments.keys() {
-            if !known_segment_ids.contains(&segment_id.as_str()) {
+            if !is_known(segment_id) {
                 warnings.push(ConfigWarning::UnknownSegmentTable {
                     segment: segment_id.clone(),
                 });
@@ -562,6 +570,29 @@ mod tests {
         assert_eq!(
             Config::from_toml("unexpected = true").expect("unknown key should remain valid"),
             Config::default()
+        );
+    }
+
+    #[test]
+    fn treats_command_segments_as_known() {
+        let config = Config::from_toml(
+            r#"
+            [layout.line1]
+            left = ["dir", "kube", "typo"]
+
+            [segments.kube]
+            command = "kubectl config current-context"
+            detect = ["k8s"]
+            "#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(
+            config.warnings(TEST_KNOWN_SEGMENTS),
+            [ConfigWarning::UnknownLayoutSegment {
+                location: "layout.line1.left".to_string(),
+                segment: "typo".to_string(),
+            }]
         );
     }
 

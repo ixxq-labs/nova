@@ -22,6 +22,10 @@ use crate::config::load::{ConfigSnapshot, ConfigSource};
 use crate::config::{Config, DEFAULT_INITIAL_WAIT_MS, DEFAULT_MIN_LOADING_MS, SegmentConfig};
 use crate::render::zsh::with_terminal_integration;
 use crate::render::{AsyncSegmentValues, LoweredPrompt, render_with_async};
+use crate::segments::runtime::{
+    COMMAND_SEGMENT_TIMEOUT, COMMAND_SEGMENT_TTL, collect_command_segment, command_cache_key,
+    command_segment_ids,
+};
 use crate::segments::{
     ASYNC_SEGMENTS, AsyncJobSegment, AsyncSegmentFailure, CollectContext, SegmentContent,
     known_segment_ids,
@@ -551,6 +555,15 @@ fn async_values(
         }
     }
 
+    for id in command_segment_ids(config, known_segment_ids()) {
+        let segment_config = config.segment(id);
+        let Some(key) = command_cache_key(id, segment_config, state, config_generation) else {
+            continue;
+        };
+        let ttl = segment_ttl(segment_config, COMMAND_SEGMENT_TTL);
+        values.insert(id.to_string(), cache.lookup(&key, now, ttl));
+    }
+
     values
 }
 
@@ -562,6 +575,12 @@ fn schedule_async_refreshes(
     config: Arc<Config>,
     config_generation: u64,
 ) {
+    let refresh = Refresh {
+        pool,
+        generation,
+        config: &config,
+    };
+
     for segment in ASYNC_SEGMENTS {
         if !config_uses_any_segment(&config, segment.render_ids()) {
             continue;
@@ -570,37 +589,85 @@ fn schedule_async_refreshes(
         let Some(key) = segment.cache_key(segment.primary_id(), &state, config_generation) else {
             continue;
         };
-        let now = Instant::now();
-        let segment_config = config.segment(segment.primary_id());
-        let ttl = segment_ttl(segment_config, segment.default_ttl());
-        if !cache.needs_refresh(&key, now, ttl) {
-            continue;
-        }
-
-        let min_loading_until =
-            segment_min_loading_until(cache, &key, &config, segment.primary_id(), now);
         let fail_keys = segment
             .render_ids()
             .iter()
             .filter_map(|render_id| segment.cache_key(render_id, &state, config_generation))
             .collect::<Vec<_>>();
-        cache.mark_inflight(key.clone());
-        let timeout = segment_timeout(segment_config, segment.default_timeout());
         let job_state = state.clone();
         let job_config = Arc::clone(&config);
-        let spawn_result = pool.spawn_with_fail_keys(
-            generation,
-            key.clone(),
-            fail_keys.clone(),
-            timeout,
-            move |deadline| AsyncJobSegments {
-                min_loading_until,
-                segments: segment.collect(&CollectContext {
+        refresh.spawn(
+            cache,
+            segment.primary_id(),
+            key,
+            fail_keys,
+            (segment.default_ttl(), segment.default_timeout()),
+            move |deadline| {
+                segment.collect(&CollectContext {
                     state: &job_state,
                     config: &job_config,
                     config_generation,
                     deadline,
-                }),
+                })
+            },
+        );
+    }
+
+    for id in command_segment_ids(&config, known_segment_ids()) {
+        let Some(key) = command_cache_key(id, config.segment(id), &state, config_generation) else {
+            continue;
+        };
+        let job_key = key.clone();
+        let job_state = state.clone();
+        let job_config = Arc::clone(&config);
+        let job_id = id.to_string();
+        refresh.spawn(
+            cache,
+            id,
+            key.clone(),
+            vec![key],
+            (COMMAND_SEGMENT_TTL, COMMAND_SEGMENT_TIMEOUT),
+            move |deadline| {
+                collect_command_segment(job_key, job_config.segment(&job_id), &job_state, deadline)
+            },
+        );
+    }
+}
+
+struct Refresh<'a> {
+    pool: &'a JobPool<AsyncJobSegments>,
+    generation: u64,
+    config: &'a Arc<Config>,
+}
+
+impl Refresh<'_> {
+    /// Starts a collection job unless the cached value is still fresh.
+    fn spawn(
+        &self,
+        cache: &mut SegmentCache,
+        segment_id: &str,
+        key: CacheKey,
+        fail_keys: Vec<CacheKey>,
+        (default_ttl, default_timeout): (Duration, Duration),
+        collect: impl FnOnce(Instant) -> Vec<AsyncJobSegment> + Send + 'static,
+    ) {
+        let now = Instant::now();
+        let segment_config = self.config.segment(segment_id);
+        if !cache.needs_refresh(&key, now, segment_ttl(segment_config, default_ttl)) {
+            return;
+        }
+
+        let min_loading_until =
+            segment_min_loading_until(cache, &key, self.config, segment_id, now);
+        cache.mark_inflight(key.clone());
+        let spawn_result = self.pool.spawn_with_fail_keys(
+            self.generation,
+            key,
+            fail_keys.clone(),
+            segment_timeout(segment_config, default_timeout),
+            move |deadline| AsyncJobSegments {
+                min_loading_until,
+                segments: collect(deadline),
             },
         );
 

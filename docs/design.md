@@ -490,6 +490,11 @@ Owned by the worker. One layer for now.
 - **Concurrency**: the job pool has one thread per async segment kind, so a
   slow collector (git on a network filesystem) never delays the others. It is
   still bounded by the segment registry.
+- **Command segments**: a `[segments.<id>]` with `command` (and an id that is
+  not built in) is collected like the built-in async segments, keyed by id,
+  cwd, and `PATH`. `detect` is a list of names `stat`ed in the cwd before any
+  job is scheduled. The command runs with the worker's environment, which is
+  the shell's at spawn time, plus the prompt's cwd and `PATH`.
 - **Startup prefetch**: right after the handshake the worker schedules async
   refreshes for the directory and environment it inherited from the shell
   (`$PWD`, `PATH`, …). The rest of `.zshrc` usually runs before the first

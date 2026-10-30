@@ -2,6 +2,7 @@
 
 mod aws;
 mod bun;
+mod command;
 mod deno;
 mod detect;
 mod nix_shell;
@@ -13,6 +14,10 @@ pub use aws::{AwsSegment, render_aws};
 pub use bun::{
     BunSegment, bun_cache_key, collect_bun_version, is_bun_project_dir, parse_bun_version,
     render_bun_version,
+};
+pub use command::{
+    COMMAND_SEGMENT_TIMEOUT, COMMAND_SEGMENT_TTL, collect_command_segment, command_cache_key,
+    command_segment_ids,
 };
 pub use deno::{
     DenoSegment, collect_deno_version, deno_cache_key, is_deno_project_dir, parse_deno_version,

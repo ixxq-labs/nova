@@ -86,10 +86,15 @@ fn renders_zsh_init_script() {
     };
     assert!(runtime_dir.join("req").exists());
     assert!(runtime_dir.join("resp").exists());
-    assert!(String::from_utf8_lossy(&output).contains(&format!(
-        "typeset -g _nova_runtime_dir='{}'",
-        runtime_dir.display()
-    )));
+    assert!(
+        runtime_dir
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("nova-init-"))
+    );
+    assert!(
+        String::from_utf8_lossy(&output)
+            .contains(&format!("local prepared='{}'", runtime_dir.display()))
+    );
 }
 
 #[test]

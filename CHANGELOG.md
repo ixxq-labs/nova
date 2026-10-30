@@ -33,9 +33,9 @@ All notable user-facing changes are documented here. The format follows
   move instead of space padding. It stays right-aligned after a pane split or
   window shrink and, like `RPROMPT`, leaves the last column empty.
 - Startup no longer forks `rm`, `mkdir`, and `mkfifo`: `nova init zsh`
-  prepares the runtime directory (`nova-<pid>-<random>`) itself, and exit
-  cleanup uses the `zsh/files` builtins. This removes about 15 ms from the
-  first prompt on macOS.
+  prepares the runtime directory and FIFOs itself, the shell claims it with an
+  atomic `zf_mv` rename, and exit cleanup uses the `zsh/files` builtins. This
+  removes about 15 ms from the first prompt on macOS.
 - The worker checks the shell's liveness with `kill(2)` instead of forking
   `kill -0` every second.
 - Async collectors run with one slot per segment kind, so a slow `git status`

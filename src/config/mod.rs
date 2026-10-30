@@ -193,6 +193,17 @@ impl Config {
             }
         }
 
+        if self
+            .layout
+            .separator
+            .as_deref()
+            .is_some_and(|separator| separator.chars().any(char::is_control))
+        {
+            warnings.push(ConfigWarning::ControlCharacters {
+                location: "layout.separator".to_string(),
+            });
+        }
+
         for (segment_id, segment_config) in &self.segments {
             push_style_warnings(
                 &mut warnings,
@@ -570,6 +581,18 @@ mod tests {
         assert_eq!(
             Config::from_toml("unexpected = true").expect("unknown key should remain valid"),
             Config::default()
+        );
+    }
+
+    #[test]
+    fn warns_about_control_characters_in_the_separator() {
+        let config = Config::from_toml("[layout]\nseparator = \"a\\u001eb\"\n").expect("toml");
+
+        assert_eq!(
+            config.warnings(TEST_KNOWN_SEGMENTS),
+            [ConfigWarning::ControlCharacters {
+                location: "layout.separator".to_string(),
+            }]
         );
     }
 

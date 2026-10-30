@@ -28,6 +28,7 @@ pub enum ConfigWarning {
     UnknownSegmentTable { segment: String },
     UnknownLayoutSegment { location: String, segment: String },
     InvalidColor { location: String, color: String },
+    ControlCharacters { location: String },
 }
 
 impl std::fmt::Display for ConfigWarning {
@@ -44,6 +45,9 @@ impl std::fmt::Display for ConfigWarning {
             }
             Self::InvalidColor { location, color } => {
                 write!(formatter, "invalid color `{color}` in `{location}`")
+            }
+            Self::ControlCharacters { location } => {
+                write!(formatter, "control characters in `{location}` are ignored")
             }
         }
     }

@@ -6,6 +6,13 @@ All notable user-facing changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Renamed or copied files whose original path starts with `? `, `1 `, or `u `
+  no longer add a phantom entry to `git_status` (#39).
+- Control characters in `layout.separator` are stripped instead of corrupting
+  the prompt, and `nova check` warns about them (#40).
+
 ## [0.4.0] - 2026-10-31
 
 ### Added

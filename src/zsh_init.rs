@@ -1,40 +1,88 @@
 //! zsh adapter script embedding.
 
-use std::fs::File;
+use std::env;
+use std::fs::{self, DirBuilder, File};
 use std::io::Read;
-use std::path::Path;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::{Path, PathBuf};
+
+use nix::sys::stat::Mode;
+use nix::unistd::mkfifo;
 
 use crate::worker::protocol;
 
 const INIT_ZSH: &str = include_str!("shell/init.zsh");
 const SESSION_TOKEN_BYTES: usize = 16;
+const RUNTIME_DIR_SUFFIX_BYTES: usize = 6;
 
 pub fn render_init_script(binary_path: &Path) -> String {
-    render_init_script_with_session_token_initializer(binary_path, &session_token_initializer())
+    // The init process is already running, so creating the FIFOs here saves zsh three forks.
+    let runtime_dir = prepare_runtime_dir(&runtime_base_dir());
+    render_init_script_with(
+        binary_path,
+        &session_token_initializer(),
+        runtime_dir.as_deref(),
+    )
 }
 
-fn render_init_script_with_session_token_initializer(
+fn render_init_script_with(
     binary_path: &Path,
     session_token_initializer: &str,
+    runtime_dir: Option<&Path>,
 ) -> String {
+    let runtime_dir = runtime_dir
+        .map(|dir| zsh_single_quote(&dir.to_string_lossy()))
+        .unwrap_or_else(|| "''".to_string());
     INIT_ZSH
         .replace(
             "@NOVA_BIN@",
             &zsh_single_quote(&binary_path.to_string_lossy()),
         )
+        .replace("@NOVA_RUNTIME_DIR@", &runtime_dir)
         .replace("@NOVA_PROTOCOL_VERSION@", protocol::VERSION)
         .replace("@NOVA_SESSION_TOKEN@", session_token_initializer)
 }
 
+/// Mirrors the zsh fallback: `${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}`.
+fn runtime_base_dir() -> PathBuf {
+    ["XDG_RUNTIME_DIR", "TMPDIR"]
+        .into_iter()
+        .filter_map(env::var_os)
+        .find(|value| !value.is_empty())
+        .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
+}
+
+/// Creates `nova-<shell pid>-<random>` with both FIFOs. `None` makes the zsh
+/// adapter fall back to creating its own runtime directory.
+fn prepare_runtime_dir(base: &Path) -> Option<PathBuf> {
+    let suffix = random_hex(RUNTIME_DIR_SUFFIX_BYTES)?;
+    let dir = base.join(format!(
+        "nova-{}-{suffix}",
+        std::os::unix::process::parent_id()
+    ));
+    DirBuilder::new().mode(0o700).create(&dir).ok()?;
+
+    let fifo_mode = Mode::S_IRUSR | Mode::S_IWUSR;
+    let created = ["req", "resp"]
+        .into_iter()
+        .all(|name| mkfifo(&dir.join(name), fifo_mode).is_ok());
+    if created {
+        Some(dir)
+    } else {
+        let _ = fs::remove_dir_all(&dir);
+        None
+    }
+}
+
 fn session_token_initializer() -> String {
-    match os_random_session_token() {
+    match random_hex(SESSION_TOKEN_BYTES) {
         Some(token) => zsh_single_quote(&token),
         None => zsh_random_session_token_expression(),
     }
 }
 
-fn os_random_session_token() -> Option<String> {
-    let mut bytes = [0_u8; SESSION_TOKEN_BYTES];
+fn random_hex(len: usize) -> Option<String> {
+    let mut bytes = vec![0_u8; len];
     let mut random = File::open("/dev/urandom").ok()?;
     random.read_exact(&mut bytes).ok()?;
     Some(hex_encode(&bytes))
@@ -57,7 +105,7 @@ fn zsh_random_session_token_expression() -> String {
 
 #[cfg(test)]
 fn render_init_script_with_session_token(binary_path: &Path, session_token: &str) -> String {
-    render_init_script_with_session_token_initializer(binary_path, &zsh_single_quote(session_token))
+    render_init_script_with(binary_path, &zsh_single_quote(session_token), None)
 }
 
 fn zsh_single_quote(input: &str) -> String {
@@ -138,8 +186,68 @@ mod tests {
         assert!(script.contains("_nova_worker_alive && return 0"));
         assert!(script.contains("if ! _nova_worker_alive; then"));
         assert!(script.contains(
-            "if [[ -o interactive ]]; then\n  _nova_spawn_worker || true\nfi\n\nadd-zsh-hook"
+            "if [[ -o interactive ]]; then\n  _nova_spawn_worker || true\nelse\n  _nova_remove_runtime\nfi\n\nadd-zsh-hook"
         ));
+    }
+
+    #[test]
+    fn falls_back_to_a_pid_runtime_directory_when_init_could_not_prepare_one() {
+        let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
+
+        assert!(script.contains("typeset -g _nova_runtime_dir=''\n"));
+        assert!(script.contains(
+            "[[ -n $_nova_runtime_dir ]] || _nova_runtime_dir=\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$\""
+        ));
+        assert!(!script.contains("@NOVA_RUNTIME_DIR@"));
+    }
+
+    #[test]
+    fn embeds_the_prepared_runtime_directory() {
+        let script = render_init_script_with(
+            Path::new("/tmp/nova"),
+            "'token'",
+            Some(Path::new("/tmp/it's/nova-1-abc")),
+        );
+
+        assert!(script.contains("typeset -g _nova_runtime_dir='/tmp/it'\\''s/nova-1-abc'\n"));
+    }
+
+    #[test]
+    fn prepares_a_private_runtime_directory_with_both_fifos() {
+        use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+
+        let base = tempfile::tempdir().expect("tempdir");
+        let dir = prepare_runtime_dir(base.path()).expect("runtime dir should be prepared");
+        let name = dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("name");
+        let parent_pid = std::os::unix::process::parent_id();
+
+        assert!(name.starts_with(&format!("nova-{parent_pid}-")));
+        assert_eq!(
+            fs::metadata(&dir).expect("dir").permissions().mode() & 0o777,
+            0o700
+        );
+        for fifo in ["req", "resp"] {
+            let metadata = fs::metadata(dir.join(fifo)).expect("fifo");
+            assert!(metadata.file_type().is_fifo());
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        }
+        assert_ne!(
+            prepare_runtime_dir(base.path()),
+            Some(dir),
+            "each init gets a fresh directory"
+        );
+    }
+
+    #[test]
+    fn removes_runtime_with_builtins_and_keeps_command_fallbacks() {
+        let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
+
+        assert!(script.contains("zmodload -F zsh/files b:zf_mkdir b:zf_rm"));
+        assert!(script.contains("zf_rm -rf -- \"$_nova_runtime_dir\""));
+        assert!(script.contains("zf_mkdir -m 700 -- \"$_nova_runtime_dir\""));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 
 emulate -LR zsh
-setopt err_exit no_unset pipe_fail
+setopt err_exit no_unset pipe_fail extended_glob
 zmodload zsh/datetime zsh/zpty zsh/zselect
 
 typeset -gr script_dir=${0:A:h}
@@ -190,7 +190,7 @@ runtime_dir=$(<"$state_dir/runtime-dir")
 [[ $shell_pid == <-> ]] || fail "invalid shell pid: ${(qqq)shell_pid}"
 [[ $worker_pid == <-> ]] || fail "invalid worker pid: ${(qqq)worker_pid}"
 kill -0 "$worker_pid" 2>/dev/null || fail "worker $worker_pid is not running"
-[[ $runtime_dir == "$temp_dir/nova-$shell_pid" ]] || \
+[[ $runtime_dir == "$temp_dir/nova-$shell_pid-"[[:xdigit:]](#c12) ]] || \
   fail "unexpected runtime directory: ${(qqq)runtime_dir}"
 [[ -d $runtime_dir ]] || fail "runtime directory does not exist: ${(qqq)runtime_dir}"
 

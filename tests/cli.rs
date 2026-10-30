@@ -62,15 +62,34 @@ fn rejects_unknown_commands() {
 
 #[test]
 fn renders_zsh_init_script() {
+    let runtime_base = tempfile::tempdir().expect("runtime base should be created");
     let mut command = Command::cargo_bin("nova").expect("nova binary should build");
 
-    command
+    let output = command
+        .env("XDG_RUNTIME_DIR", runtime_base.path())
         .arg("init")
         .arg("zsh")
         .assert()
         .success()
         .stdout(predicate::str::contains("add-zsh-hook precmd _nova_precmd"))
-        .stdout(predicate::str::contains("typeset -g _nova_bin='"));
+        .stdout(predicate::str::contains("typeset -g _nova_bin='"))
+        .get_output()
+        .stdout
+        .clone();
+
+    let prepared = fs::read_dir(runtime_base.path())
+        .expect("runtime base should be readable")
+        .map(|entry| entry.expect("entry").path())
+        .collect::<Vec<_>>();
+    let [runtime_dir] = prepared.as_slice() else {
+        panic!("init should prepare exactly one runtime directory: {prepared:?}");
+    };
+    assert!(runtime_dir.join("req").exists());
+    assert!(runtime_dir.join("resp").exists());
+    assert!(String::from_utf8_lossy(&output).contains(&format!(
+        "typeset -g _nova_runtime_dir='{}'",
+        runtime_dir.display()
+    )));
 }
 
 #[test]

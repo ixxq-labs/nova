@@ -80,22 +80,28 @@ Each interactive shell owns one worker:
 - `nova init zsh` output spawns `nova worker --dir <runtime-dir>` with `&!`
   (disowned, no job-control noise). Spawning is fire-and-forget and costs a
   fork/exec (~1–2 ms); shell startup never waits for worker readiness.
-- The runtime dir is `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>/` and holds
-  `req` and `resp` FIFOs. Before creating it, init removes any pre-existing
-  dir for the same shell pid — a leftover from a crashed predecessor or an
-  `exec zsh` replacement (the pid survives `exec`).
+- The runtime dir is `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>-<random>/`
+  and holds `req` and `resp` FIFOs. The `nova init zsh` process creates it
+  (mode `0700`, FIFOs `0600`) and bakes the path into the emitted script, so
+  zsh startup forks no `rm`/`mkdir`/`mkfifo` helpers. A fresh random suffix
+  per init means an `exec zsh` replacement (the pid survives `exec`) never
+  collides with its predecessor. If init cannot prepare the dir, or the
+  worker later has to be respawned, zsh falls back to
+  `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>/`, recreated with the
+  `zsh/files` builtins plus `mkfifo`. Non-interactive shells remove the
+  prepared dir immediately.
 - Lifetime is tied to the shell: the worker exits when the request FIFO reaches
   EOF (all writers closed — this happens automatically when the shell dies).
-  A `zshexit` hook removes the runtime dir as a backup; the worker also removes
-  it on clean exit. EOF is only a reliable signal because of the fd-hygiene
+  A `zshexit` hook removes the runtime dir as a backup with the `zf_rm`
+  builtin; the worker also removes it on clean exit. EOF is only a reliable signal because of the fd-hygiene
   rules below — a leaked write fd would keep the worker alive forever.
 - **fd hygiene**: the zsh side opens every Nova fd with `cloexec`, so ordinary
   child commands and `exec zsh` replacements never inherit them. On the Rust
   side, `std` opens fds with `CLOEXEC` by default, so collector children
   (`git`, version probes) never inherit the FIFO fds either.
-- **Liveness backstop**: the worker is started with `--shell-pid <pid>`. Its
-  event loop uses `recv_timeout` as an idle tick (60 s) and checks
-  `kill(pid, 0)` via `libc`; if the shell is gone, the worker exits and cleans
+- **Liveness backstop**: the worker receives the shell pid through
+  `NOVA_PARENT_PID`. A monitor thread checks `kill(pid, 0)` once per second
+  through the `nix` crate (a syscall, not a forked `kill` command); if the shell is gone, the worker exits and cleans
   up. EOF remains the primary exit signal; this catches leaked-writer and
   reparenting edge cases.
 - **Session token**: init generates a random token per shell and passes it to
@@ -144,8 +150,8 @@ file descriptors that `zle -F` can watch. Only stock zsh modules are needed
 
 Rails and pitfalls:
 
-- The worker creates nothing; the init script creates the runtime dir and both
-  FIFOs with `mkfifo` before spawning the worker, so there is no startup race
+- The worker creates nothing; `nova init zsh` (or the zsh fallback) creates the
+  runtime dir and both FIFOs before the worker is spawned, so there is no startup race
   on file existence.
 - **Opening a FIFO can block until the other end is opened, and the
   interactive shell must never perform a blocking open.** The worker — where

@@ -385,10 +385,12 @@ only assigns them.
   path as async updates, so truncation is refitted without blocking input.
 - **Terminal integration**: for the live shell (not `nova prompt` previews),
   the worker wraps `PROMPT` and the transient prompt in OSC 133 `A`/`B` marks
-  and prefixes an OSC 7 `file://host/path` report. `%` from percent-encoding
+  and, when the cwd differs from the previous prompt's, prefixes an OSC 7
+  `file://host/path` report (terminals keep the last one; updates for a prompt
+  reuse its decision). `%` from percent-encoding
   is escaped as `%%` because zsh expands prompt escapes even inside `%{ %}`.
-  The zsh adapter emits `C` in `preexec` and `D;<status>` in `precmd` only
-  while the displayed prompt carries the `A` mark, so `[terminal]` stays the
+  The zsh adapter writes `C` in `preexec` and `D;<status>` in `precmd` to a
+  cached `$TTY` fd, only while the displayed prompt carries the `A` mark, so `[terminal]` stays the
   single switch.
 - **Transient prompt**: every render also lowers `layout.transient`
   (default `["prompt_char"]`, empty disables it). A `zle-line-finish` hook

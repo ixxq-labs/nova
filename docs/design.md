@@ -81,15 +81,21 @@ Each interactive shell owns one worker:
   (disowned, no job-control noise). Spawning is fire-and-forget and costs a
   fork/exec (~1–2 ms); shell startup never waits for worker readiness.
 - The runtime dir is `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>-<random>/`
-  and holds `req` and `resp` FIFOs. The `nova init zsh` process creates it
-  (mode `0700`, FIFOs `0600`) and bakes the path into the emitted script, so
-  zsh startup forks no `rm`/`mkdir`/`mkfifo` helpers. A fresh random suffix
-  per init means an `exec zsh` replacement (the pid survives `exec`) never
-  collides with its predecessor. If init cannot prepare the dir, or the
-  worker later has to be respawned, zsh falls back to
-  `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>/`, recreated with the
-  `zsh/files` builtins plus `mkfifo`. Non-interactive shells remove the
-  prepared dir immediately.
+  and holds `req` and `resp` FIFOs. The `nova init zsh` process creates
+  `nova-init-<random>` (mode `0700`, FIFOs `0600`) and bakes the path into the
+  emitted script, so zsh startup forks no `rm`/`mkdir`/`mkfifo` helpers. The
+  script claims it with an atomic `zf_mv` rename to `nova-$$-<random>`: init
+  cannot know the shell pid itself (zsh forks a subshell for `$(...)` once
+  traps are set), and the rename hands a saved init script's directory to
+  exactly one shell. A fresh random suffix per init means an `exec zsh`
+  replacement (the pid survives `exec`) never collides with its predecessor.
+  If there is nothing to claim, or the worker later has to be respawned, zsh
+  falls back to `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>/`, recreated
+  with the `zsh/files` builtins plus `mkfifo`. Non-interactive shells remove
+  the dir immediately, and a re-sourced init removes the unclaimed dir it just
+  prepared. A saved init script leaves the dir prepared when it was generated
+  behind once if no shell claims it.
+
 - Lifetime is tied to the shell: the worker exits when the request FIFO reaches
   EOF (all writers closed — this happens automatically when the shell dies).
   A `zshexit` hook removes the runtime dir as a backup with the `zf_rm`

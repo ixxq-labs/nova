@@ -52,14 +52,11 @@ fn runtime_base_dir() -> PathBuf {
         .map_or_else(|| PathBuf::from("/tmp"), PathBuf::from)
 }
 
-/// Creates `nova-<shell pid>-<random>` with both FIFOs. `None` makes the zsh
-/// adapter fall back to creating its own runtime directory.
+/// Creates `nova-init-<random>` with both FIFOs for the shell to claim by
+/// renaming it. `None` makes the zsh adapter create its own runtime directory.
 fn prepare_runtime_dir(base: &Path) -> Option<PathBuf> {
     let suffix = random_hex(RUNTIME_DIR_SUFFIX_BYTES)?;
-    let dir = base.join(format!(
-        "nova-{}-{suffix}",
-        std::os::unix::process::parent_id()
-    ));
+    let dir = base.join(format!("nova-init-{suffix}"));
     DirBuilder::new().mode(0o700).create(&dir).ok()?;
 
     let fifo_mode = Mode::S_IRUSR | Mode::S_IWUSR;
@@ -194,22 +191,45 @@ mod tests {
     fn falls_back_to_a_pid_runtime_directory_when_init_could_not_prepare_one() {
         let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
 
-        assert!(script.contains("typeset -g _nova_runtime_dir=''\n"));
         assert!(script.contains(
-            "[[ -n $_nova_runtime_dir ]] || _nova_runtime_dir=\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$\""
+            "typeset -g _nova_runtime_dir=\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$\""
         ));
+        assert!(script.contains("local prepared=''\n"));
         assert!(!script.contains("@NOVA_RUNTIME_DIR@"));
     }
 
     #[test]
-    fn embeds_the_prepared_runtime_directory() {
+    fn claims_the_prepared_runtime_directory_with_an_atomic_rename() {
         let script = render_init_script_with(
             Path::new("/tmp/nova"),
             "'token'",
-            Some(Path::new("/tmp/it's/nova-1-abc")),
+            Some(Path::new("/tmp/it's/nova-init-abc")),
         );
+        let (_guard, body) = script
+            .split_once("typeset -g _NOVA_ZSH_LOADED=1")
+            .expect("load guard");
 
-        assert!(script.contains("typeset -g _nova_runtime_dir='/tmp/it'\\''s/nova-1-abc'\n"));
+        assert!(body.contains("local prepared='/tmp/it'\\''s/nova-init-abc'\n"));
+        assert!(body.contains("local claimed=${prepared:h}/nova-$$-${${prepared:t}#nova-init-}"));
+        assert!(body.contains(
+            "zf_mv -- \"$prepared\" \"$claimed\" 2>/dev/null && _nova_runtime_dir=$claimed"
+        ));
+    }
+
+    #[test]
+    fn reloading_removes_the_unclaimed_prepared_directory() {
+        let script = render_init_script_with(
+            Path::new("/tmp/nova"),
+            "'token'",
+            Some(Path::new("/tmp/nova-init-abc")),
+        );
+        let (guard, _rest) = script
+            .split_once("typeset -g _NOVA_ZSH_LOADED=1")
+            .expect("load guard");
+
+        assert!(guard.contains("local prepared='/tmp/nova-init-abc'"));
+        assert!(guard.contains("[[ ${prepared:t} == nova-init-* ]] || return 0"));
+        assert!(guard.contains("zf_rm -rf -- \"$prepared\""));
     }
 
     #[test]
@@ -222,9 +242,9 @@ mod tests {
             .file_name()
             .and_then(|name| name.to_str())
             .expect("name");
-        let parent_pid = std::os::unix::process::parent_id();
 
-        assert!(name.starts_with(&format!("nova-{parent_pid}-")));
+        assert!(name.starts_with("nova-init-"));
+
         assert_eq!(
             fs::metadata(&dir).expect("dir").permissions().mode() & 0o777,
             0o700
@@ -245,7 +265,7 @@ mod tests {
     fn removes_runtime_with_builtins_and_keeps_command_fallbacks() {
         let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
 
-        assert!(script.contains("zmodload -F zsh/files b:zf_mkdir b:zf_rm"));
+        assert!(script.contains("zmodload -F zsh/files b:zf_mkdir b:zf_mv b:zf_rm"));
         assert!(script.contains("zf_rm -rf -- \"$_nova_runtime_dir\""));
         assert!(script.contains("zf_mkdir -m 700 -- \"$_nova_runtime_dir\""));
     }

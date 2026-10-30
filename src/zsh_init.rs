@@ -211,9 +211,9 @@ mod tests {
 
         assert!(body.contains("local prepared='/tmp/it'\\''s/nova-init-abc'\n"));
         assert!(body.contains("local claimed=${prepared:h}/nova-$$-${${prepared:t}#nova-init-}"));
-        assert!(body.contains(
-            "zf_mv -- \"$prepared\" \"$claimed\" 2>/dev/null && _nova_runtime_dir=$claimed"
-        ));
+        assert!(body.contains("zf_mv -- \"$prepared\" \"$claimed\"\n"));
+        assert!(body.contains("command mv -- \"$prepared\" \"$claimed\"\n"));
+        assert!(body.contains("fi 2>/dev/null && _nova_runtime_dir=$claimed"));
     }
 
     #[test]

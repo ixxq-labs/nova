@@ -18,13 +18,14 @@ pub fn with_terminal_integration(
     cwd: &Path,
     host: Option<&str>,
 ) -> LoweredPrompt {
+    // Not part of PROMPT: zsh writes it once per command or cwd change instead of
+    // on every redraw, and re-sends it after a nested shell overwrote it.
     let cwd_report = if config.report_cwd {
-        // Percent-encoding produces `%`, which zsh would expand even inside `%{ %}`.
-        wrap_non_printing(&escape_prompt_text(&format!(
+        format!(
             "\x1b]7;file://{}{}\x07",
             host.map(percent_encode_host).unwrap_or_default(),
             percent_encode_path(cwd)
-        )))
+        )
     } else {
         String::new()
     };
@@ -37,9 +38,10 @@ pub fn with_terminal_integration(
     };
 
     LoweredPrompt {
-        prompt: format!("{cwd_report}{}", mark(output.prompt)),
+        prompt: mark(output.prompt),
         rprompt: output.rprompt,
         transient: mark(output.transient),
+        cwd_report,
     }
 }
 
@@ -295,6 +297,7 @@ mod tests {
             prompt: prompt.to_string(),
             rprompt: "12:00".to_string(),
             transient: transient.to_string(),
+            cwd_report: String::new(),
         }
     }
 
@@ -309,8 +312,11 @@ mod tests {
 
         assert_eq!(
             output.prompt,
-            "%{\x1b]7;file://mac%%20book/tmp/my%%20dir/100%%25\x07%}\
-             %{\x1b]133;A\x07%}~/nova\n❯ %{\x1b]133;B\x07%}"
+            "%{\x1b]133;A\x07%}~/nova\n❯ %{\x1b]133;B\x07%}"
+        );
+        assert_eq!(
+            output.cwd_report,
+            "\x1b]7;file://mac%20book/tmp/my%20dir/100%25\x07"
         );
         assert_eq!(output.transient, "%{\x1b]133;A\x07%}❯ %{\x1b]133;B\x07%}");
         assert_eq!(output.rprompt, "12:00");
@@ -336,7 +342,8 @@ mod tests {
             output.transient, "",
             "a disabled transient prompt stays empty"
         );
-        assert!(output.prompt.starts_with("%{\x1b]7;file:///tmp\x07%}"));
+        assert_eq!(output.cwd_report, "\x1b]7;file:///tmp\x07");
+        assert!(!output.prompt.contains("]7;"), "OSC 7 stays out of PROMPT");
     }
 
     #[test]

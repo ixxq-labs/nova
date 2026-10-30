@@ -51,6 +51,8 @@ else
   typeset -g _nova_reply_status=
   typeset -g _nova_transient_prompt=
   typeset -g _nova_tty_fd=
+  typeset -g _nova_cwd_report=
+  typeset -g _nova_cwd_reported=
   typeset -g _nova_full_prompt=
   typeset -g _nova_full_rprompt=
   typeset -g _nova_transient_active=0
@@ -254,6 +256,7 @@ else
         _nova_full_prompt=$PROMPT
         _nova_full_rprompt=$RPROMPT
         _nova_transient_prompt="${fields[6]}"
+        _nova_cwd_report="${fields[7]}"
         _nova_reply_applied=1
         ;;
     esac
@@ -264,6 +267,7 @@ else
     PROMPT='%~ %# '
     RPROMPT=''
     _nova_transient_prompt=
+    _nova_cwd_report=
     _nova_full_prompt=
     if (( _nova_failures >= 3 && ! _nova_warned_dead )); then
       print -ru2 -- 'nova: worker unavailable; using fallback prompt for this session'
@@ -440,6 +444,14 @@ else
       RPROMPT=''
       _nova_transient_prompt=
       _nova_full_prompt=
+      _nova_cwd_report=
+    fi
+
+    # OSC 7 after every command, not only on cwd changes: a nested shell or ssh
+    # session may have reported its own directory meanwhile.
+    if [[ -n $_nova_cwd_report && ( -n ${_nova_cmd_start:-} || $_nova_cwd_report != "$_nova_cwd_reported" ) ]]; then
+      _nova_emit_mark "$_nova_cwd_report"
+      _nova_cwd_reported=$_nova_cwd_report
     fi
 
     _nova_cmd_start=

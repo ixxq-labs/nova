@@ -1837,15 +1837,15 @@ printf '%s\0%s\0%s\0' '# branch.oid abcdef0123456789' '# branch.head main' '1 A.
         .spawn()
         .expect("worker should spawn");
 
+    // Like zsh, connect only later: the prefetch must not wait for the FIFOs.
+    wait_until(Duration::from_secs(2), || count_path.exists());
+
     let mut request = open_fifo_write(runtime_dir.join("req"));
     let mut response = WorkerReader::new(open_fifo_read(runtime_dir.join("resp")));
     assert!(matches!(
         read_worker_record(&mut response),
         WorkerRecord::Handshake { .. }
     ));
-
-    // No request has been sent yet, so only the startup prefetch can run git.
-    wait_until(Duration::from_secs(2), || count_path.exists());
     // Let the default loading floor pass so the result lands in the cache.
     thread::sleep(Duration::from_millis(300));
 

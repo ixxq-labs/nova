@@ -127,6 +127,8 @@ wait_for_shell_exit() {
   local -F deadline=$(( EPOCHREALTIME + 10 ))
 
   while (( EPOCHREALTIME < deadline )); do
+    # zpty -t keeps reporting a running command while unread output is pending.
+    drain_output
     zpty -t nova_e2e || return 0
     zselect -t 5 >/dev/null 2>&1 || true
   done
@@ -199,7 +201,8 @@ pty_fd=$REPLY
 session_active=1
 
 checkpoint_output
-zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"'
+# Handlers set with the trap builtin before init must keep running after Nova's.
+zpty -w nova_e2e 'trap "print -r -- USER_\${:-INT}" INT; trap "print -r -- USER_\${:-WINCH}" WINCH; eval "$("$NOVA_E2E_BIN" init zsh)"'
 wait_for_output "$main_marker" 'the first Nova prompt'
 print -r -- 'ok 1 - first prompt renders without fallback'
 
@@ -207,7 +210,10 @@ checkpoint_output
 # Commands after the eval must still run, as the rest of a re-sourced .zshrc does.
 zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"; print -r -- "RELOADED_${:-OK}"'
 wait_for_output 'RELOADED_OK' 'the re-sourced init script'
+# The next prompt may already be in the transcript, so submit a fresh line to
+# wait on instead of racing for the one after RELOADED_OK.
 checkpoint_output
+zpty -w nova_e2e ':'
 wait_for_output "$main_marker" 'the prompt after re-sourcing init'
 typeset -a runtime_dirs=("$temp_dir"/nova-*(N/))
 (( ${#runtime_dirs} == 1 )) || \
@@ -265,6 +271,20 @@ wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/re
   'OSC 133 command marks and the OSC 7 cwd report'
 print -r -- 'ok 6 - terminal integration marks commands and reports the cwd'
 
+# With the shell's stdout redirected, marks must still reach the terminal and
+# never land in the captured output.
+zpty -w nova_e2e 'exec 3>&1 >"$NOVA_E2E_STATE/captured.log"'
+drain_for 0.3
+checkpoint_output
+zpty -w nova_e2e 'print -r -- "CAPTURED_${:-LINE}"'
+wait_for_match $'\e\\]133;D;0\a' 'the command marks while stdout is redirected'
+zpty -w nova_e2e 'exec >&3 3>&-'
+drain_for 0.3
+[[ $(<"$state_dir/captured.log") == CAPTURED_LINE ]] || \
+  fail "redirected output captured integration bytes: ${(qqq)$(<"$state_dir/captured.log")}"
+print -r -- 'ok 7 - command marks bypass redirected stdout'
+
+
 
 
 drain_for 0.3
@@ -275,7 +295,8 @@ zpty -w -n nova_e2e $'\x03'
 # zsh redraws without precmd after Ctrl-C: the collapsed prompt comes first
 # (no branch before the marker), then line-init restores the full prompt.
 wait_for_match "${main_marker}.*${branch_marker}.*${main_marker}" 'the collapsed then restored prompt after Ctrl-C'
-print -r -- 'ok 7 - interrupted lines collapse to the transient prompt'
+wait_for_output 'USER_INT' 'the user INT trap chained after Nova'
+print -r -- 'ok 8 - interrupted lines collapse to the transient prompt'
 
 
 
@@ -289,13 +310,14 @@ wait_for_file "$state_dir/tty"
 # without job-control stops, and zle's own redraw cannot bump Nova's generation.
 command stty cols 40 <"$(<"$state_dir/tty")"
 drain_for 0.5
+wait_for_output 'USER_WINCH' 'the user WINCH trap chained after Nova'
 checkpoint_output
 zpty -w nova_e2e 'print -r -- "GEN_B=<$_nova_last_applied_gen|$COLUMNS>"'
 wait_for_match "$gen_b_pattern" 'the generation after resizing'
 # One for the command's precmd, at least one more for the SIGWINCH re-render.
 (( match[1] >= gen_before + 2 )) || \
   fail "resize did not re-render the prompt (generation $gen_before -> $match[1])"
-print -r -- 'ok 8 - terminal resize re-renders the prompt'
+print -r -- 'ok 9 - terminal resize re-renders the prompt'
 
 
 
@@ -303,4 +325,4 @@ kill -KILL "$shell_pid"
 wait_for_shell_exit
 session_active=0
 wait_for_worker_cleanup
-print -r -- 'ok 9 - killed shell leaves no worker or runtime directory'
+print -r -- 'ok 10 - killed shell leaves no worker or runtime directory'

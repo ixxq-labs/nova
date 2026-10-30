@@ -43,7 +43,8 @@ use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use nix::sys::signal::{Signal, killpg};
@@ -121,6 +122,7 @@ fn collect_command_output(
     path: Option<&str>,
 ) -> Result<Vec<u8>, RuntimeCollectError> {
     let mut command = runtime_command(command, path);
+    let deadline = Instant::now() + timeout;
     // Own process group, so a timeout also stops grandchildren (`a; b`, pipes) that
     // would otherwise keep stdout open and hold the job past its deadline.
     command.process_group(0);
@@ -146,11 +148,13 @@ fn collect_command_output(
             kill_process_group(&child);
             let _ = child.kill();
             let _ = child.wait();
-            let _ = stdout_reader.join();
+            // The reader thread ends on its own once the pipe closes.
             return Err(RuntimeCollectError::TimedOut);
         }
     };
-    let output = join_stdout(stdout_reader)?;
+    let output = join_stdout(&stdout_reader, deadline).inspect_err(|_error| {
+        kill_process_group(&child);
+    })?;
 
     if !status.success() {
         return Ok(Vec::new());
@@ -219,21 +223,30 @@ fn remaining_time(deadline: Instant) -> Result<Duration, RuntimeCollectError> {
     }
 }
 
-fn read_stdout(mut stdout: std::process::ChildStdout) -> JoinHandle<std::io::Result<Vec<u8>>> {
+type StdoutReader = mpsc::Receiver<std::io::Result<Vec<u8>>>;
+
+fn read_stdout(mut stdout: std::process::ChildStdout) -> StdoutReader {
+    let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let mut output = Vec::new();
-        stdout.read_to_end(&mut output)?;
-        Ok(output)
-    })
+        let result = stdout.read_to_end(&mut output).map(|_bytes| output);
+        let _ = sender.send(result);
+    });
+    receiver
 }
 
+/// Waits for stdout to close, but never past `deadline`: a descendant that left
+/// the process group (or was backgrounded with `&`) can hold it open for long.
 fn join_stdout(
-    stdout_reader: JoinHandle<std::io::Result<Vec<u8>>>,
+    stdout_reader: &StdoutReader,
+    deadline: Instant,
 ) -> Result<Vec<u8>, RuntimeCollectError> {
-    stdout_reader
-        .join()
-        .map_err(|_panic| RuntimeCollectError::ReaderPanicked)?
-        .map_err(RuntimeCollectError::ReadOutput)
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    match stdout_reader.recv_timeout(remaining) {
+        Ok(result) => result.map_err(RuntimeCollectError::ReadOutput),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(RuntimeCollectError::TimedOut),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(RuntimeCollectError::ReaderPanicked),
+    }
 }
 
 #[cfg(unix)]

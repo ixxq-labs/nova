@@ -298,8 +298,8 @@ Medians of two alternating rounds of 8 iterations:
 
 | build | `first_prompt_lag_ms` | `command_lag_ms` | `input_lag_ms` |
 | ----- | --------------------: | ---------------: | -------------: |
-| 0.3.1 |           51.3 / 52.6 |      0.76 / 0.76 |    0.36 / 0.45 |
-| 0.4.0 |           36.1 / 36.2 |      0.80 / 0.80 |    0.50 / 0.50 |
+| 0.3.1 |           52.4 / 52.1 |      0.75 / 0.75 |    0.43 / 0.48 |
+| 0.4.0 |           36.8 / 36.4 |      0.93 / 0.94 |    0.58 / 0.52 |
 
 Interpretation:
 
@@ -307,10 +307,11 @@ Interpretation:
   runtime directory, so startup no longer forks `rm`, `mkdir`, and `mkfifo`.
   The bench's empty `.zshrc` hides the startup prefetch, which pays off when
   the rest of `.zshrc` runs before the first prompt.
-- Terminal integration first added about 0.16 ms of `command_lag_ms`.
-  Ablating it through `[terminal]` showed ~0.09 ms for an OSC 7 report on
-  every prompt and ~0.04 ms for opening `$TTY` per command mark. Reporting
-  OSC 7 only on cwd changes and caching the `$TTY` fd brought the cost to
-  about 0.04 ms; the transient prompt costs no measurable time.
+- Terminal integration accounts for most of the `command_lag_ms` change
+  (about 0.16 ms against `[terminal]` disabled). The OSC 7 report is written
+  once per command from `precmd`, never on redraws, because a nested shell or
+  ssh session may have overwritten it; the OSC 133 marks reuse a cached
+  `$TTY` fd. The transient prompt costs no measurable time, and the capsule
+  style is off by default. Every interactive field stays well inside green.
 - All fields remain green except `first_prompt_lag_ms`, which includes bare
   zsh startup (about 24 ms on this machine, measured earlier the same day).

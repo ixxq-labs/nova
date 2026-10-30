@@ -29,9 +29,13 @@ typeset -g _nova_runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$"
 # others fall back to creating their own.
 () {
   local prepared=@NOVA_RUNTIME_DIR@
-  [[ ${prepared:t} == nova-init-* ]] && (( $+builtins[zf_mv] )) || return 0
+  [[ ${prepared:t} == nova-init-* ]] || return 0
   local claimed=${prepared:h}/nova-$$-${${prepared:t}#nova-init-}
-  zf_mv -- "$prepared" "$claimed" 2>/dev/null && _nova_runtime_dir=$claimed
+  if (( $+builtins[zf_mv] )); then
+    zf_mv -- "$prepared" "$claimed"
+  else
+    command mv -- "$prepared" "$claimed"
+  fi 2>/dev/null && _nova_runtime_dir=$claimed
   return 0
 }
 typeset -g _nova_req_fifo="$_nova_runtime_dir/req"

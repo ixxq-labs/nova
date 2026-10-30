@@ -55,6 +55,7 @@ typeset -g _nova_transient_prompt=
 typeset -g _nova_tty_fd=
 typeset -g _nova_cwd_report=
 typeset -g _nova_cwd_reported=
+typeset -g _nova_cwd_report_due=0
 typeset -g _nova_full_prompt=
 typeset -g _nova_full_rprompt=
 typeset -g _nova_transient_active=0
@@ -277,6 +278,16 @@ _nova_fallback() {
   fi
 }
 
+_nova_emit_cwd_report() {
+  [[ -n $_nova_cwd_report ]] || return 0
+  if (( _nova_cwd_report_due )) || [[ $_nova_cwd_report != "$_nova_cwd_reported" ]]; then
+    _nova_emit_mark "$_nova_cwd_report"
+    _nova_cwd_reported=$_nova_cwd_report
+    _nova_cwd_report_due=0
+  fi
+  return 0
+}
+
 _nova_on_update() {
   emulate -L zsh
   _nova_drain_and_redraw
@@ -291,6 +302,7 @@ _nova_drain_and_redraw() {
   }
   if (( _nova_reply_applied )); then
     zle reset-prompt 2>/dev/null || true
+    _nova_emit_cwd_report
   fi
 }
 
@@ -450,11 +462,10 @@ _nova_precmd() {
   fi
 
   # OSC 7 after every command, not only on cwd changes: a nested shell or ssh
-  # session may have reported its own directory meanwhile.
-  if [[ -n $_nova_cwd_report && ( -n ${_nova_cmd_start:-} || $_nova_cwd_report != "$_nova_cwd_reported" ) ]]; then
-    _nova_emit_mark "$_nova_cwd_report"
-    _nova_cwd_reported=$_nova_cwd_report
-  fi
+  # session may have reported its own directory meanwhile. A reply that arrives
+  # after this wait reports through _nova_drain_and_redraw instead.
+  [[ -n ${_nova_cmd_start:-} ]] && _nova_cwd_report_due=1
+  _nova_emit_cwd_report
 
   _nova_cmd_start=
 }

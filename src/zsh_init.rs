@@ -127,7 +127,7 @@ mod tests {
     fn embeds_the_protocol_version() {
         let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
 
-        assert!(script.contains("typeset -g _nova_protocol_version=7"));
+        assert!(script.contains("typeset -g _nova_protocol_version=8"));
         assert!(script.contains("\"${fields[2]}\" == \"$_nova_protocol_version\""));
         assert!(!script.contains("@NOVA_PROTOCOL_VERSION@"));
     }

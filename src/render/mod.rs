@@ -20,18 +20,16 @@ pub struct RenderedPrompt {
     pub line2_right: Vec<SegmentContent>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LoweredPrompt {
     pub prompt: String,
     pub rprompt: String,
+    /// Collapsed `PROMPT` swapped in once a command is accepted; empty disables it.
+    pub transient: String,
 }
 
 pub fn render(config: &Config, state: &PromptState) -> LoweredPrompt {
-    lower_with_separator(
-        render_structured(config, state),
-        state.columns,
-        config.layout.separator(),
-    )
+    render_lowered(config, state, None)
 }
 
 pub fn render_with_async(
@@ -39,11 +37,38 @@ pub fn render_with_async(
     state: &PromptState,
     async_values: &AsyncSegmentValues,
 ) -> LoweredPrompt {
-    lower_with_separator(
-        render_structured_with_async(config, state, async_values),
-        state.columns,
-        config.layout.separator(),
-    )
+    render_lowered(config, state, Some(async_values))
+}
+
+fn render_lowered(
+    config: &Config,
+    state: &PromptState,
+    async_values: Option<&AsyncSegmentValues>,
+) -> LoweredPrompt {
+    let separator = config.layout.separator();
+    LoweredPrompt {
+        transient: render_transient(config, state, async_values, separator),
+        ..lower_with_separator(
+            render_structured_inner(config, state, async_values),
+            state.columns,
+            separator,
+        )
+    }
+}
+
+fn render_transient(
+    config: &Config,
+    state: &PromptState,
+    async_values: Option<&AsyncSegmentValues>,
+    separator: &str,
+) -> String {
+    let mut segments = render_side(&config.layout.transient, config, state, async_values);
+    fit_side(
+        &mut segments,
+        prompt_columns_for_input(usize::from(state.columns)),
+        separator,
+    );
+    lower_side(&segments, separator)
 }
 
 pub fn render_structured(config: &Config, state: &PromptState) -> RenderedPrompt {
@@ -99,6 +124,7 @@ fn lower_with_separator(rendered: RenderedPrompt, columns: u16, separator: &str)
         return LoweredPrompt {
             prompt: input_line.prompt,
             rprompt,
+            transient: String::new(),
         };
     }
 
@@ -108,7 +134,11 @@ fn lower_with_separator(rendered: RenderedPrompt, columns: u16, separator: &str)
     let prompt = format!("{first_line}\n{}", second_line.prompt);
     let rprompt = lower_input_rprompt(&second_line, &line2_left, &line2_right, columns, separator);
 
-    LoweredPrompt { prompt, rprompt }
+    LoweredPrompt {
+        prompt,
+        rprompt,
+        transient: String::new(),
+    }
 }
 
 fn render_line(
@@ -178,14 +208,19 @@ fn lower_first_line(
 
     let lowered_right = lower_side(right, separator);
     let right_width = side_width(right, separator);
-    let available_for_left = columns.saturating_sub(right_width + MIN_LINE_RIGHT_GAP);
+    let available_for_left =
+        columns.saturating_sub(right_width + MIN_LINE_RIGHT_GAP + RIGHT_EDGE_MARGIN);
     fit_side(left, available_for_left, separator);
     let lowered_left = lower_truncated_start_side(left, available_for_left, separator);
-    let padding = columns.saturating_sub(visible_prompt_width(&lowered_left) + right_width);
-    format!("{lowered_left}{}{lowered_right}", " ".repeat(padding))
+    format!(
+        "{lowered_left}{}{lowered_right}",
+        zsh::right_align(right_width)
+    )
 }
 
 const MIN_LINE_RIGHT_GAP: usize = 1;
+/// Matches zsh's default `ZLE_RPROMPT_INDENT` so the last column stays empty.
+const RIGHT_EDGE_MARGIN: usize = 1;
 const MIN_LINE_RIGHT_COLUMNS: usize = 50;
 
 struct LoweredInputLine {
@@ -972,7 +1007,7 @@ fn strip_prompt_markers(input: &str) -> String {
     output
 }
 
-fn visible_prompt_width(input: &str) -> usize {
+pub(crate) fn visible_prompt_width(input: &str) -> usize {
     width::display_width(&strip_prompt_markers(input))
 }
 
@@ -994,6 +1029,45 @@ mod tests {
     use crate::config::{Config, LayoutConfig, LineConfig};
     use crate::segments::{SegmentPart, Style};
     use crate::state::{Keymap, PromptEnv};
+
+    fn transient_state(exit_status: i32) -> PromptState {
+        PromptState {
+            cwd: PathBuf::from("/Users/me/projects/nova"),
+            exit_status,
+            duration_ms: None,
+            time: Some("11:16:42".to_string()),
+            columns: 80,
+            keymap: Keymap::Main,
+            env: PromptEnv {
+                home: Some(PathBuf::from("/Users/me")),
+                ..PromptEnv::default()
+            },
+        }
+    }
+
+    #[test]
+    fn transient_prompt_defaults_to_the_prompt_character() {
+        let config = Config::default();
+
+        assert_eq!(render(&config, &transient_state(0)).transient, "❯ ");
+        assert_eq!(
+            render(&config, &transient_state(1)).transient,
+            "%{\x1b[1;31m%}❯ %{\x1b[0m%}"
+        );
+    }
+
+    #[test]
+    fn transient_prompt_renders_configured_segments_and_can_be_disabled() {
+        let config =
+            Config::from_toml("[layout]\ntransient = [\"time\", \"prompt_char\"]\n").expect("toml");
+        assert_eq!(
+            render(&config, &transient_state(0)).transient,
+            "11:16:42 ❯ "
+        );
+
+        let config = Config::from_toml("[layout]\ntransient = []\n").expect("toml");
+        assert_eq!(render(&config, &transient_state(0)).transient, "");
+    }
 
     #[test]
     fn snapshots_two_line_first_line_right_prompt() {
@@ -1034,8 +1108,10 @@ mod tests {
         );
 
         let first_line = output.prompt.lines().next().expect("first prompt line");
-        assert_eq!(visible_prompt_width(first_line), 50);
-        assert!(first_line.ends_with(" 12:34:56"));
+        assert!(first_line.contains(&zsh::right_align(8)));
+        let expanded = zsh::expand_right_align(first_line, 50);
+        assert_eq!(visible_prompt_width(&expanded), 49);
+        assert!(expanded.ends_with(" 12:34:56"));
     }
 
     #[test]
@@ -1074,6 +1150,7 @@ mod tests {
                     right: vec!["duration".to_string()],
                 },
                 line2: LineConfig::default(),
+                transient: Vec::new(),
             },
             segments: Default::default(),
             unknown_keys: Default::default(),
@@ -1206,6 +1283,7 @@ mod tests {
                     right: Vec::new(),
                 },
                 line2: LineConfig::default(),
+                transient: Vec::new(),
             },
             segments: Default::default(),
             unknown_keys: Default::default(),
@@ -1243,6 +1321,7 @@ mod tests {
                     right: Vec::new(),
                 },
                 line2: LineConfig::default(),
+                transient: Vec::new(),
             },
             segments: Default::default(),
             unknown_keys: Default::default(),
@@ -1308,6 +1387,7 @@ mod tests {
                     right: Vec::new(),
                 },
                 line2: LineConfig::default(),
+                transient: Vec::new(),
             },
             segments: Default::default(),
             unknown_keys: Default::default(),
@@ -1418,6 +1498,7 @@ mod tests {
                     right: Vec::new(),
                 },
                 line2: LineConfig::default(),
+                transient: Vec::new(),
             },
             segments: Default::default(),
             unknown_keys: Default::default(),
@@ -1607,7 +1688,7 @@ mod tests {
         assert!(first_line.contains("directory feature/very-long-branch [!+?]"));
         assert!(!first_line.contains(''));
         assert!(!first_line.contains(''));
-        assert!(first_line.ends_with("  12:34:56"));
+        assert!(first_line.ends_with(&format!("{}12:34:56", zsh::right_align(8))));
     }
 
     #[test]
@@ -1850,6 +1931,7 @@ mod tests {
                         right: Vec::new(),
                     },
                     line2: LineConfig::default(),
+                    transient: Vec::new(),
                 },
                 segments: Default::default(),
                 unknown_keys: Default::default(),

@@ -51,6 +51,8 @@ pub struct LayoutConfig {
     pub separator: Option<String>,
     pub line1: LineConfig,
     pub line2: LineConfig,
+    /// Segments of the collapsed prompt left in scrollback; empty disables it.
+    pub transient: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -189,12 +191,18 @@ impl Config {
         }
     }
 
+    pub fn uses_segment(&self, id: &str) -> bool {
+        self.layout_segments()
+            .any(|(_location, segment)| segment == id)
+    }
+
     fn layout_segments(&self) -> impl Iterator<Item = (&'static str, &str)> {
         [
             ("layout.line1.left", self.layout.line1.left.as_slice()),
             ("layout.line1.right", self.layout.line1.right.as_slice()),
             ("layout.line2.left", self.layout.line2.left.as_slice()),
             ("layout.line2.right", self.layout.line2.right.as_slice()),
+            ("layout.transient", self.layout.transient.as_slice()),
         ]
         .into_iter()
         .flat_map(|(location, segments)| {
@@ -285,6 +293,7 @@ impl Default for LayoutConfig {
                 left: vec!["exit_status".to_string(), "prompt_char".to_string()],
                 right: Vec::new(),
             },
+            transient: vec!["prompt_char".to_string()],
         }
     }
 }

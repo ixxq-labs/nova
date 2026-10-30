@@ -274,7 +274,7 @@ nova/
 │   ├── render/
 │   │   ├── mod.rs         # compose RenderedPrompt from state + config + cache
 │   │   ├── width.rs       # display width (unicode-width), truncation
-│   │   └── zsh.rs         # lowering: %-escaping, %{...%} wrapping, line1 padding
+│   │   └── zsh.rs         # lowering: %-escaping, %{...%} wrapping, line1 right alignment
 │   ├── cache.rs           # bounded freshness cache + inflight set
 │   ├── worker/
 │   │   ├── mod.rs         # event loop (single mpsc receiver, enum Event)
@@ -355,7 +355,7 @@ pub trait AsyncSegmentSpec: Send + Sync {
 /// Structured output; the zsh adapter never sees this, only its lowering.
 pub struct RenderedPrompt {
     pub line1_left: Vec<SegmentContent>,
-    pub line1_right: Vec<SegmentContent>, // composed via padding, see Rendering
+    pub line1_right: Vec<SegmentContent>, // cursor-aligned, see Rendering
     pub line2_left: Vec<SegmentContent>,  // empty in one-line layout
     pub line2_right: Vec<SegmentContent>, // becomes RPROMPT
 }
@@ -368,7 +368,20 @@ only assigns them.
 
 - **First-line right prompt**: zsh's `RPROMPT` renders only on the prompt's
   last line. The right block of line 1 in a two-line layout therefore must be
-  composed in Rust: `line1 = left + spaces(cols − width(left) − width(right)) + right`.
+  composed in Rust: `line1 = left + %{ESC[999C ESC[<width(right)>D%} + right`.
+  The terminal clamps `999C` to its current width, so the block stays
+  right-aligned even when zsh redraws the same string after a resize, and zsh
+  counts the cursor move as zero width, so it never believes line 1 wrapped.
+  Like `RPROMPT`, the block leaves the last column empty. `nova prompt
+  --format preview` expands the move into spaces for the requested `--cols`.
+- **Resize**: a `TRAPWINCH` (chaining any user-defined one) re-sends a render
+  request with the new `COLUMNS`; the reply arrives through the same `zle -F`
+  path as async updates, so truncation is refitted without blocking input.
+- **Transient prompt**: every render also lowers `layout.transient`
+  (default `["prompt_char"]`, empty disables it). A `zle-line-finish` hook
+  swaps it into `PROMPT` and clears `RPROMPT`, so scrollback keeps one compact
+  line per command and the swap costs no IPC.
+
   This is the single most error-prone rendering feature; it gets dedicated
   snapshot and property tests.
 - **Width**: computed in Rust from unstyled text using `unicode-width`.

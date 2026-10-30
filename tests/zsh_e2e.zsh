@@ -85,6 +85,31 @@ wait_for_output() {
   fail "timed out waiting for $description (${(qqq)expected})"
 }
 
+# Keeps reading the pty while waiting so a full output buffer never blocks the shell.
+drain_for() {
+  local -F deadline=$(( EPOCHREALTIME + $1 ))
+
+  while (( EPOCHREALTIME < deadline )); do
+    drain_output
+    zselect -t 2 -r $pty_fd >/dev/null 2>&1 || true
+  done
+}
+
+wait_for_match() {
+  local pattern=$1
+  local description=$2
+  local -F deadline=$(( EPOCHREALTIME + 10 ))
+
+  while (( EPOCHREALTIME < deadline )); do
+    drain_output
+    output_since_checkpoint
+    [[ $REPLY =~ $pattern ]] && return 0
+    zselect -t 5 -r $pty_fd >/dev/null 2>&1 || true
+  done
+
+  fail "timed out waiting for $description (${(qqq)pattern})"
+}
+
 wait_for_file() {
   local path=$1
   local -F deadline=$(( EPOCHREALTIME + 10 ))
@@ -211,8 +236,36 @@ zpty -w -n nova_e2e $'\e'
 wait_for_output "$vi_marker" 'the vi command-mode prompt redraw'
 print -r -- 'ok 3 - keymap switch redraws the prompt character'
 
+checkpoint_output
+zpty -w -n nova_e2e 'i'
+zpty -w nova_e2e 'print -r -- "TRANSIENT=<$PROMPT|$RPROMPT>"'
+# While the command runs, PROMPT still holds the collapsed prompt swapped in at line-finish.
+wait_for_output 'TRANSIENT=<NOVA_E2E_MAIN> |>' 'the transient prompt during command execution'
+wait_for_output "$main_marker" 'the full prompt after the command'
+print -r -- 'ok 4 - accepted lines collapse to the transient prompt'
+
+checkpoint_output
+typeset -g gen_a_pattern='GEN_A=<([0-9]+)>' gen_b_pattern='GEN_B=<([0-9]+)[|]40>'
+zpty -w nova_e2e 'print -r -- "$TTY" >| "$NOVA_E2E_STATE/tty"; print -r -- "GEN_A=<$_nova_last_applied_gen>"'
+wait_for_match "$gen_a_pattern" 'the generation before resizing'
+typeset -gi gen_before=$match[1]
+wait_for_file "$state_dir/tty"
+# Resize from outside the session: the kernel delivers SIGWINCH to the shell
+# without job-control stops, and zle's own redraw cannot bump Nova's generation.
+command stty cols 40 <"$(<"$state_dir/tty")"
+drain_for 0.5
+checkpoint_output
+zpty -w nova_e2e 'print -r -- "GEN_B=<$_nova_last_applied_gen|$COLUMNS>"'
+wait_for_match "$gen_b_pattern" 'the generation after resizing'
+# One for the command's precmd, at least one more for the SIGWINCH re-render.
+(( match[1] >= gen_before + 2 )) || \
+  fail "resize did not re-render the prompt (generation $gen_before -> $match[1])"
+print -r -- 'ok 5 - terminal resize re-renders the prompt'
+
+
+
 kill -KILL "$shell_pid"
 wait_for_shell_exit
 session_active=0
 wait_for_worker_cleanup
-print -r -- 'ok 4 - killed shell leaves no worker or runtime directory'
+print -r -- 'ok 6 - killed shell leaves no worker or runtime directory'

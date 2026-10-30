@@ -583,20 +583,7 @@ fn config_uses_any_segment(config: &Config, ids: &[&str]) -> bool {
 }
 
 fn config_uses_segment(config: &Config, id: &str) -> bool {
-    config.layout.line1.left.iter().any(|segment| segment == id)
-        || config
-            .layout
-            .line1
-            .right
-            .iter()
-            .any(|segment| segment == id)
-        || config.layout.line2.left.iter().any(|segment| segment == id)
-        || config
-            .layout
-            .line2
-            .right
-            .iter()
-            .any(|segment| segment == id)
+    config.uses_segment(id)
 }
 
 fn render_status(config: &Config, async_values: &AsyncSegmentValues) -> RenderStatus {

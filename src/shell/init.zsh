@@ -27,6 +27,7 @@ typeset -g _nova_last_duration_ms=
 typeset -g _nova_last_applied_gen=0
 typeset -g _nova_reply_applied=0
 typeset -g _nova_reply_status=
+typeset -g _nova_transient_prompt=
 typeset -g _nova_wait_cs=0
 typeset -g _nova_handshake_ok=0
 typeset -g _nova_failures=0
@@ -208,7 +209,7 @@ _nova_apply_record() {
   emulate -L zsh
   local record=$1
   local -a fields
-  fields=("${(0)record}")
+  fields=("${(@0)record}")
 
   case "${fields[1]}" in
     H)
@@ -224,6 +225,7 @@ _nova_apply_record() {
       _nova_reply_status="${fields[3]}"
       PROMPT="${fields[4]}"
       RPROMPT="${fields[5]}"
+      _nova_transient_prompt="${fields[6]}"
       _nova_reply_applied=1
       ;;
   esac
@@ -233,6 +235,7 @@ _nova_fallback() {
   emulate -L zsh
   PROMPT='%~ %# '
   RPROMPT=''
+  _nova_transient_prompt=
   if (( _nova_failures >= 3 && ! _nova_warned_dead )); then
     print -ru2 -- 'nova: worker unavailable; using fallback prompt for this session'
     _nova_warned_dead=1
@@ -278,6 +281,24 @@ _nova_zle_keymap_select() {
   if zselect -t 1 -r "$_nova_resp_fd" >/dev/null 2>&1; then
     _nova_drain_and_redraw
   fi
+}
+
+_nova_zle_line_finish() {
+  emulate -L zsh
+  [[ -n $_nova_transient_prompt ]] || return 0
+  PROMPT=$_nova_transient_prompt
+  RPROMPT=
+  zle reset-prompt 2>/dev/null || true
+}
+
+# Re-render at the new width; the reply arrives through the zle -F handler.
+_nova_on_winch() {
+  emulate -L zsh
+  zle || return 0
+  [[ -n ${_nova_req_fd:-} && -n ${_nova_resp_fd:-} ]] || return 0
+  (( _nova_gen++ ))
+  _nova_send_request "$_nova_last_exit_status" "$_nova_last_duration_ms" || _nova_mark_dead
+  return 0
 }
 
 _nova_preexec() {
@@ -342,6 +363,7 @@ _nova_precmd() {
   if (( ! _nova_reply_applied )); then
     PROMPT='%~ %# '
     RPROMPT=''
+    _nova_transient_prompt=
   fi
 
   _nova_cmd_start=
@@ -363,4 +385,18 @@ add-zsh-hook preexec _nova_preexec
 add-zsh-hook precmd _nova_precmd
 add-zsh-hook zshexit _nova_cleanup
 add-zle-hook-widget line-init _nova_zle_line_init 2>/dev/null || true
+add-zle-hook-widget line-finish _nova_zle_line_finish 2>/dev/null || true
 add-zle-hook-widget keymap-select _nova_zle_keymap_select 2>/dev/null || true
+# Defined at top level: `emulate -L` would make a trap set inside a function local.
+if [[ -o interactive ]]; then
+  if (( $+functions[TRAPWINCH] )) && [[ $functions[TRAPWINCH] != *_nova_on_winch* ]]; then
+    functions[_nova_user_trapwinch]=$functions[TRAPWINCH]
+  fi
+  TRAPWINCH() {
+    _nova_on_winch
+    if (( $+functions[_nova_user_trapwinch] )); then
+      _nova_user_trapwinch "$@"
+    fi
+    return 0
+  }
+fi

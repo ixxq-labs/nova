@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use nova::config::error::ConfigWarning;
 use nova::config::load::load_config;
 use nova::render::render;
+use nova::render::zsh::expand_right_align;
 use nova::segments::known_segment_ids;
 use nova::state::{Keymap, PromptState};
 use nova::worker::{WorkerOptions, run as run_worker_loop};
@@ -208,12 +209,12 @@ impl PromptArgs {
             }
             PromptFormat::Preview => {
                 if output.rprompt.is_empty() {
-                    format!("{}\n", preview_prompt(&output.prompt))
+                    format!("{}\n", preview_prompt(&output.prompt, self.columns))
                 } else {
                     format!(
                         "{}\n{}\n",
-                        preview_prompt(&output.prompt),
-                        preview_prompt(&output.rprompt)
+                        preview_prompt(&output.prompt, self.columns),
+                        preview_prompt(&output.rprompt, self.columns)
                     )
                 }
             }
@@ -383,6 +384,9 @@ fn zsh_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', "'\\''"))
 }
 
-fn preview_prompt(input: &str) -> String {
-    input.replace("%{", "").replace("%}", "").replace("%%", "%")
+fn preview_prompt(input: &str, columns: u16) -> String {
+    expand_right_align(input, usize::from(columns))
+        .replace("%{", "")
+        .replace("%}", "")
+        .replace("%%", "%")
 }

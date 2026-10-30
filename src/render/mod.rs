@@ -995,7 +995,14 @@ fn truncate_segment(
         }
     }
 
-    SegmentContent::from_parts(segment.id.clone(), parts)
+    let mut truncated = SegmentContent::from_parts(segment.id.clone(), parts);
+    // Capsules take their color from a part's bg; keep it when that part is cut.
+    truncated.style.bg = segment
+        .parts
+        .iter()
+        .find_map(|part| part.style.bg.clone())
+        .or_else(|| segment.style.bg.clone());
+    truncated
 }
 
 fn retained_prefix_parts(parts: &[SegmentPart], max_width: usize) -> Vec<SegmentPart> {
@@ -2032,6 +2039,28 @@ mod tests {
 
             prop_assert!(visible_prompt_width(first_line) <= usize::from(columns));
         }
+    }
+
+    #[test]
+    fn capsule_color_survives_truncating_the_part_that_carries_it() {
+        let segment = SegmentContent::from_parts(
+            "user_host",
+            vec![
+                SegmentPart::new(
+                    "me",
+                    Style {
+                        bg: Some("red".to_string()),
+                        ..Style::default()
+                    },
+                ),
+                SegmentPart::new("@a-very-long-hostname", Style::default()),
+            ],
+        );
+
+        let truncated = truncate_segment_start(&segment, 8);
+
+        assert_eq!(truncated.text, "…ostname", "the username part was cut");
+        assert!(zsh::lower_capsule(&truncated, "238").starts_with("%{\x1b[31m%}\u{e0b6}"));
     }
 
     #[test]

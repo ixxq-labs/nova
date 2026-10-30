@@ -22,6 +22,7 @@ pub struct Config {
     #[serde(rename = "async")]
     pub async_config: AsyncConfig,
     pub layout: LayoutConfig,
+    pub terminal: TerminalConfig,
     pub segments: BTreeMap<String, SegmentConfig>,
     #[serde(skip)]
     pub(crate) unknown_keys: BTreeSet<String>,
@@ -31,6 +32,7 @@ impl PartialEq for Config {
     fn eq(&self, other: &Self) -> bool {
         self.async_config == other.async_config
             && self.layout == other.layout
+            && self.terminal == other.terminal
             && self.segments == other.segments
     }
 }
@@ -53,6 +55,26 @@ pub struct LayoutConfig {
     pub line2: LineConfig,
     /// Segments of the collapsed prompt left in scrollback; empty disables it.
     pub transient: Vec<String>,
+}
+
+/// Escape sequences that let terminals understand the prompt. Terminals that do
+/// not support them ignore them.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TerminalConfig {
+    /// OSC 133 marks: jump between prompts, select command output, exit badges.
+    pub semantic_prompts: bool,
+    /// OSC 7: new tabs and splits open in the current directory.
+    pub report_cwd: bool,
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            semantic_prompts: true,
+            report_cwd: true,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]

@@ -377,6 +377,13 @@ only assigns them.
 - **Resize**: a `TRAPWINCH` (chaining any user-defined one) re-sends a render
   request with the new `COLUMNS`; the reply arrives through the same `zle -F`
   path as async updates, so truncation is refitted without blocking input.
+- **Terminal integration**: for the live shell (not `nova prompt` previews),
+  the worker wraps `PROMPT` and the transient prompt in OSC 133 `A`/`B` marks
+  and prefixes an OSC 7 `file://host/path` report. `%` from percent-encoding
+  is escaped as `%%` because zsh expands prompt escapes even inside `%{ %}`.
+  The zsh adapter emits `C` in `preexec` and `D;<status>` in `precmd` only
+  while the displayed prompt carries the `A` mark, so `[terminal]` stays the
+  single switch.
 - **Transient prompt**: every render also lowers `layout.transient`
   (default `["prompt_char"]`, empty disables it). A `zle-line-finish` hook
   swaps it into `PROMPT` and clears `RPROMPT`, so scrollback keeps one compact

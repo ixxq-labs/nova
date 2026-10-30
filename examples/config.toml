@@ -38,6 +38,13 @@ initial_wait_ms = 0
 # Segment-level min_loading_ms overrides this value.
 min_loading_ms = 50
 
+[terminal]
+# OSC 133 prompt and command marks. Terminals such as Ghostty, WezTerm, kitty,
+# iTerm2, and VS Code use them to jump between prompts and select command output.
+semantic_prompts = true
+# OSC 7 working directory reports, so new tabs and splits open in the same place.
+report_cwd = true
+
 [layout]
 lines = 2
 # Optional separator inserted between rendered segments. Defaults to " ".

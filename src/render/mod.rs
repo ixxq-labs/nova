@@ -1152,6 +1152,7 @@ mod tests {
                 line2: LineConfig::default(),
                 transient: Vec::new(),
             },
+            terminal: Default::default(),
             segments: Default::default(),
             unknown_keys: Default::default(),
         };
@@ -1285,6 +1286,7 @@ mod tests {
                 line2: LineConfig::default(),
                 transient: Vec::new(),
             },
+            terminal: Default::default(),
             segments: Default::default(),
             unknown_keys: Default::default(),
         };
@@ -1323,6 +1325,7 @@ mod tests {
                 line2: LineConfig::default(),
                 transient: Vec::new(),
             },
+            terminal: Default::default(),
             segments: Default::default(),
             unknown_keys: Default::default(),
         };
@@ -1389,6 +1392,7 @@ mod tests {
                 line2: LineConfig::default(),
                 transient: Vec::new(),
             },
+            terminal: Default::default(),
             segments: Default::default(),
             unknown_keys: Default::default(),
         };
@@ -1500,6 +1504,7 @@ mod tests {
                 line2: LineConfig::default(),
                 transient: Vec::new(),
             },
+            terminal: Default::default(),
             segments: Default::default(),
             unknown_keys: Default::default(),
         };
@@ -1933,6 +1938,7 @@ mod tests {
                     line2: LineConfig::default(),
                     transient: Vec::new(),
                 },
+                terminal: Default::default(),
                 segments: Default::default(),
                 unknown_keys: Default::default(),
             };

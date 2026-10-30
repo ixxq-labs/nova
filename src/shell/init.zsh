@@ -324,9 +324,16 @@ _nova_on_winch() {
   return 0
 }
 
+# OSC 133 command marks follow the prompt marks the worker rendered, so
+# turning `terminal.semantic_prompts` off needs no extra state here.
+_nova_marks_commands() {
+  [[ $PROMPT == *$'\e]133;A'* ]]
+}
+
 _nova_preexec() {
   emulate -L zsh
   _nova_cmd_start=${EPOCHREALTIME:-}
+  _nova_marks_commands && print -nr -- $'\e]133;C\a'
 }
 
 _nova_precmd() {
@@ -342,6 +349,9 @@ _nova_precmd() {
   fi
   _nova_last_exit_status=$exit_status
   _nova_last_duration_ms=$duration_ms
+  if [[ -n ${_nova_cmd_start:-} ]] && _nova_marks_commands; then
+    print -nr -- $'\e]133;D;'"$exit_status"$'\a'
+  fi
 
   _nova_ensure_worker || {
     _nova_fallback

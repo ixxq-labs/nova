@@ -20,8 +20,9 @@ All notable user-facing changes are documented here. The format follows
   the new width.
 - Terminal integration under `[terminal]`, on by default: OSC 133 prompt and
   command marks (`semantic_prompts`) for jumping between prompts and selecting
-  command output, and OSC 7 (`report_cwd`) so new tabs and splits open in the
-  current directory. Terminals without support ignore both.
+  command output, and OSC 7 (`report_cwd`, sent when the directory changes) so
+  new tabs and splits open in the current directory. Terminals without support
+  ignore both.
 - The worker starts collecting async segments for the directory it was
   started in, so the first prompt after `.zshrc` usually arrives complete
   instead of filling in.

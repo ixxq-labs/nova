@@ -277,6 +277,8 @@ _nova_zle_line_init() {
   _nova_register_update_handler
   [[ -n ${_nova_resp_fd:-} ]] || return 0
   _nova_drain_and_redraw
+  # A failing zle hook would stop the hooks registered after this one.
+  return 0
 }
 
 _nova_zle_keymap_select() {
@@ -288,12 +290,13 @@ _nova_zle_keymap_select() {
   _nova_reply_status=
   _nova_send_request "$_nova_last_exit_status" "$_nova_last_duration_ms" || {
     _nova_mark_dead
-    return 1
+    return 0
   }
 
   if zselect -t 1 -r "$_nova_resp_fd" >/dev/null 2>&1; then
     _nova_drain_and_redraw
   fi
+  return 0
 }
 
 _nova_zle_line_finish() {
@@ -333,7 +336,11 @@ _nova_marks_commands() {
 _nova_preexec() {
   emulate -L zsh
   _nova_cmd_start=${EPOCHREALTIME:-}
-  _nova_marks_commands && print -nr -- $'\e]133;C\a'
+  if _nova_marks_commands; then
+    print -nr -- $'\e]133;C\a'
+  fi
+  # Keep hook status clean for other preexec hooks and status-checking tools.
+  return 0
 }
 
 _nova_precmd() {

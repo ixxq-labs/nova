@@ -254,6 +254,7 @@ wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/re
 print -r -- 'ok 5 - terminal integration marks commands and reports the cwd'
 
 
+
 drain_for 0.3
 zpty -w -n nova_e2e 'echo cancelled-line'
 wait_for_output 'cancelled-line' 'the typed but unsent line'

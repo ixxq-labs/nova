@@ -1,10 +1,10 @@
 # shellcheck shell=zsh
 
 if [[ -n ${_NOVA_ZSH_LOADED:-} ]]; then
-  # A re-sourced init prepared a directory that the loaded session never uses.
+  # A re-sourced init prepared a directory that nothing will claim.
   () {
     local prepared=@NOVA_RUNTIME_DIR@
-    [[ ${prepared:t} == nova-${$}-* && $prepared != ${_nova_runtime_dir:-} ]] || return 0
+    [[ ${prepared:t} == nova-init-* ]] || return 0
     if (( $+builtins[zf_rm] )); then
       zf_rm -rf -- "$prepared" 2>/dev/null
     else
@@ -18,15 +18,22 @@ fi
 typeset -g _NOVA_ZSH_LOADED=1
 
 zmodload zsh/datetime zsh/system zsh/zselect 2>/dev/null || true
-zmodload -F zsh/files b:zf_mkdir b:zf_rm 2>/dev/null || true
+zmodload -F zsh/files b:zf_mkdir b:zf_mv b:zf_rm 2>/dev/null || true
 autoload -Uz add-zsh-hook add-zle-hook-widget
 
 typeset -g _nova_bin=@NOVA_BIN@
 typeset -g _nova_cmd_start=
-# `nova init zsh` normally prepares this directory and its FIFOs. A saved init
-# script may be sourced by another shell, so only use a directory made for this one.
-typeset -g _nova_runtime_dir=@NOVA_RUNTIME_DIR@
-[[ ${_nova_runtime_dir:t} == nova-${$}-* ]] || _nova_runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$"
+typeset -g _nova_runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$"
+# `nova init zsh` prepares a directory with both FIFOs. Claiming it with an
+# atomic rename hands a saved init script's directory to only one shell; the
+# others fall back to creating their own.
+() {
+  local prepared=@NOVA_RUNTIME_DIR@
+  [[ ${prepared:t} == nova-init-* ]] && (( $+builtins[zf_mv] )) || return 0
+  local claimed=${prepared:h}/nova-$$-${${prepared:t}#nova-init-}
+  zf_mv -- "$prepared" "$claimed" 2>/dev/null && _nova_runtime_dir=$claimed
+  return 0
+}
 typeset -g _nova_req_fifo="$_nova_runtime_dir/req"
 typeset -g _nova_resp_fifo="$_nova_runtime_dir/resp"
 typeset -g _nova_session_token=@NOVA_SESSION_TOKEN@

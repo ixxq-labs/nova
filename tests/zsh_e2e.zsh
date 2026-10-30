@@ -280,6 +280,15 @@ zpty -w nova_e2e $'printf \'\\e]7;file:///elsewhere\\a\'; print -r -- "NESTED_${
 wait_for_match $'NESTED_DONE.*\e\\]7;file://[^\a]*/repo\a.*\e\\]133;A\a' 'the cwd report restored after a nested report'
 
 
+# A reply that arrives after precmd stopped waiting reports through the same
+# helper: a pending report is written exactly once.
+checkpoint_output
+zpty -w nova_e2e $'_nova_cwd_report=$\'\\e]7;file:///la\'"te"$\'\\a\'; _nova_cwd_report_due=1; _nova_emit_cwd_report; _nova_emit_cwd_report; print -r -- "LATE_${:-DONE}"'
+wait_for_match 'LATE_DONE' 'the late cwd report check'
+output_since_checkpoint
+typeset -a late_pieces=("${(@s|file:///late|)REPLY}")
+(( ${#late_pieces} == 2 )) || \
+  fail "the pending cwd report was not written exactly once: ${(qqq)REPLY}"
 print -r -- 'ok 6 - terminal integration marks commands and reports the cwd'
 
 # With the shell's stdout redirected, marks must still reach the terminal and

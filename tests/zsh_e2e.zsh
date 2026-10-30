@@ -266,10 +266,20 @@ wait_for_output "$main_marker" 'the full prompt after the command'
 print -r -- 'ok 5 - accepted lines collapse to the transient prompt'
 
 checkpoint_output
-zpty -w nova_e2e 'print -r -- "OSC_${:-DONE}"; false'
+zpty -w nova_e2e 'cd -q ..; print -r -- "OSC_${:-DONE}"; false'
 wait_for_output 'OSC_DONE' 'the command used to check terminal marks'
-wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/repo\a.*\e\\]133;A\a' \
-  'OSC 133 command marks and the OSC 7 cwd report'
+wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/nova-zsh-e2e[^/\a]*\a.*\e\\]133;A\a' \
+  'OSC 133 command marks and the OSC 7 report for the new cwd'
+checkpoint_output
+zpty -w nova_e2e "cd -q -- ${(q)git_repo}"
+wait_for_match $'\e\\]7;file://[^\a]*/repo\a' 'the OSC 7 report after returning to the repo'
+# The terminal remembers the last report, so an unchanged cwd sends none.
+checkpoint_output
+zpty -w nova_e2e 'print -r -- "SAME_${:-CWD}"'
+wait_for_match $'SAME_CWD.*\e\\]133;A\a' 'the prompt after a command in the same cwd'
+output_since_checkpoint
+[[ $REPLY != *$'\e]7;'* ]] || fail 'an unchanged cwd was reported again'
+
 print -r -- 'ok 6 - terminal integration marks commands and reports the cwd'
 
 # With the shell's stdout redirected, marks must still reach the terminal and

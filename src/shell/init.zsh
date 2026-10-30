@@ -437,8 +437,27 @@ add-zle-hook-widget line-init _nova_zle_line_init 2>/dev/null || true
 add-zle-hook-widget line-finish _nova_zle_line_finish 2>/dev/null || true
 add-zle-hook-widget keymap-select _nova_zle_keymap_select 2>/dev/null || true
 # Traps are defined at top level: `emulate -L` would make a trap set inside a
-# function local.
+# function local. Handlers set earlier, as TRAP* functions or with the trap
+# builtin, keep running after Nova's.
 if [[ -o interactive ]]; then
+  typeset -gA _nova_user_traps
+  # Trap-builtin handlers live outside $functions, and a $(trap) subshell lists
+  # none, so read this shell's listing through a file.
+  () {
+    local file=$_nova_runtime_dir/traps
+    [[ -d $_nova_runtime_dir ]] && { trap } >| $file 2>/dev/null || return 0
+    local -a words=(${(z)"$(<$file)"})
+    local -i i
+    for (( i = 1; i + 3 <= $#words; i++ )); do
+      [[ $words[i] == trap && $words[i+1] == -- && $words[i+3] == (INT|WINCH) ]] || continue
+      _nova_user_traps[$words[i+3]]=${(Q)words[i+2]}
+    done
+    if (( $+builtins[zf_rm] )); then
+      zf_rm -f -- $file
+    fi
+    return 0
+  }
+
   if (( $+functions[TRAPWINCH] )) && [[ $functions[TRAPWINCH] != *_nova_on_winch* ]]; then
     functions[_nova_user_trapwinch]=$functions[TRAPWINCH]
   fi
@@ -446,6 +465,8 @@ if [[ -o interactive ]]; then
     _nova_on_winch
     if (( $+functions[_nova_user_trapwinch] )); then
       _nova_user_trapwinch "$@"
+    elif [[ -n ${_nova_user_traps[WINCH]:-} ]]; then
+      eval "${_nova_user_traps[WINCH]}"
     fi
     return 0
   }
@@ -458,8 +479,10 @@ if [[ -o interactive ]]; then
     if (( $+functions[_nova_user_trapint] )); then
       _nova_user_trapint "$@"
       return
+    elif [[ -n ${_nova_user_traps[INT]:-} ]]; then
+      eval "${_nova_user_traps[INT]}"
     fi
-    # Keep zsh's default interrupt behavior.
+    # Keep zsh's interrupt behavior: the line is aborted either way.
     return $(( 128 + $1 ))
   }
 fi

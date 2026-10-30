@@ -199,7 +199,8 @@ pty_fd=$REPLY
 session_active=1
 
 checkpoint_output
-zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"'
+# Handlers set with the trap builtin before init must keep running after Nova's.
+zpty -w nova_e2e 'trap "print -r -- USER_\${:-INT}" INT; trap "print -r -- USER_\${:-WINCH}" WINCH; eval "$("$NOVA_E2E_BIN" init zsh)"'
 wait_for_output "$main_marker" 'the first Nova prompt'
 print -r -- 'ok 1 - first prompt renders without fallback'
 
@@ -208,7 +209,10 @@ checkpoint_output
 zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"'
 zpty -w nova_e2e 'print -r -- "RELOADED_${:-OK}"'
 wait_for_output 'RELOADED_OK' 'the re-sourced init script'
+# The next prompt may already be in the transcript, so submit a fresh line to
+# wait on instead of racing for the one after RELOADED_OK.
 checkpoint_output
+zpty -w nova_e2e ':'
 wait_for_output "$main_marker" 'the prompt after re-sourcing init'
 typeset -a runtime_dirs=("$temp_dir"/nova-*(N/))
 (( ${#runtime_dirs} == 1 )) || \
@@ -266,6 +270,7 @@ zpty -w -n nova_e2e $'\x03'
 # zsh redraws without precmd after Ctrl-C: the collapsed prompt comes first
 # (no branch before the marker), then line-init restores the full prompt.
 wait_for_match "${main_marker}.*${branch_marker}.*${main_marker}" 'the collapsed then restored prompt after Ctrl-C'
+wait_for_output 'USER_INT' 'the user INT trap chained after Nova'
 print -r -- 'ok 6 - interrupted lines collapse to the transient prompt'
 
 
@@ -280,6 +285,7 @@ wait_for_file "$state_dir/tty"
 # without job-control stops, and zle's own redraw cannot bump Nova's generation.
 command stty cols 40 <"$(<"$state_dir/tty")"
 drain_for 0.5
+wait_for_output 'USER_WINCH' 'the user WINCH trap chained after Nova'
 checkpoint_output
 zpty -w nova_e2e 'print -r -- "GEN_B=<$_nova_last_applied_gen|$COLUMNS>"'
 wait_for_match "$gen_b_pattern" 'the generation after resizing'

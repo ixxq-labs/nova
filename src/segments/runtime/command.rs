@@ -211,6 +211,30 @@ mod tests {
     }
 
     #[test]
+    fn reading_output_is_bounded_when_a_background_job_holds_stdout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // `sh` exits at once, but the backgrounded `sleep` keeps stdout open.
+        let config = segment("echo ctx; sleep 3 &");
+        let state = state(dir.path().to_path_buf());
+        let key = command_cache_key("bg", &config, &state, 1).expect("key");
+        let started = Instant::now();
+
+        let segments = collect_command_segment(
+            key,
+            &config,
+            &state,
+            Instant::now() + Duration::from_millis(200),
+        );
+
+        assert_eq!(segments[0].content, Err(AsyncSegmentFailure::Failed));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
     fn detect_gates_the_segment_on_cwd_markers() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config = SegmentConfig {

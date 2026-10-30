@@ -2058,8 +2058,14 @@ mod tests {
                     "line overflows {columns} columns: {line:?}"
                 );
             }
-            assert!(output.prompt.contains('\u{e0b6}'), "capsules are drawn at {columns}");
-            assert!(output.prompt.ends_with("❯ "), "the prompt character stays bare");
+            assert!(
+                output.prompt.contains('\u{e0b6}'),
+                "capsules are drawn at {columns}"
+            );
+            assert!(
+                output.prompt.ends_with("❯ "),
+                "the prompt character stays bare"
+            );
         }
     }
 

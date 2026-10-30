@@ -204,6 +204,19 @@ wait_for_output "$main_marker" 'the first Nova prompt'
 print -r -- 'ok 1 - first prompt renders without fallback'
 
 checkpoint_output
+# Nothing may follow the eval on the same line: the load guard returns early.
+zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"'
+zpty -w nova_e2e 'print -r -- "RELOADED_${:-OK}"'
+wait_for_output 'RELOADED_OK' 'the re-sourced init script'
+checkpoint_output
+wait_for_output "$main_marker" 'the prompt after re-sourcing init'
+typeset -a runtime_dirs=("$temp_dir"/nova-*(N/))
+(( ${#runtime_dirs} == 1 )) || \
+  fail "re-sourcing init left extra runtime directories: ${(qqq)runtime_dirs}"
+print -r -- 'ok 2 - re-sourcing init leaves no orphaned runtime directory'
+
+
+checkpoint_output
 zpty -w nova_e2e 'print -r -- "$$" >| "$NOVA_E2E_STATE/shell.pid"; print -r -- "$_nova_worker_pid" >| "$NOVA_E2E_STATE/worker.pid"; print -r -- "$_nova_runtime_dir" >| "$NOVA_E2E_STATE/runtime-dir"'
 wait_for_output "$main_marker" 'the prompt after capturing process state'
 wait_for_file "$state_dir/shell.pid"
@@ -227,7 +240,7 @@ output_since_checkpoint
 # The branch precedes the prompt character, so this order proves there were two renders.
 [[ $REPLY == *"$main_marker"*"$branch_marker"* ]] || \
   fail 'git branch appeared before the initial prompt instead of through a later redraw'
-print -r -- 'ok 2 - git branch redraws asynchronously after cd'
+print -r -- 'ok 3 - git branch redraws asynchronously after cd'
 
 checkpoint_output
 zpty -w nova_e2e 'bindkey -v'
@@ -235,7 +248,7 @@ wait_for_output "$main_marker" 'the vi insert-mode prompt'
 checkpoint_output
 zpty -w -n nova_e2e $'\e'
 wait_for_output "$vi_marker" 'the vi command-mode prompt redraw'
-print -r -- 'ok 3 - keymap switch redraws the prompt character'
+print -r -- 'ok 4 - keymap switch redraws the prompt character'
 
 checkpoint_output
 zpty -w -n nova_e2e 'i'
@@ -243,7 +256,7 @@ zpty -w nova_e2e 'print -r -- "TRANSIENT=<$PROMPT|$RPROMPT>"'
 # While the command runs, PROMPT still holds the collapsed prompt swapped in at line-finish.
 wait_for_output 'TRANSIENT=<NOVA_E2E_MAIN> |>' 'the transient prompt during command execution'
 wait_for_output "$main_marker" 'the full prompt after the command'
-print -r -- 'ok 4 - accepted lines collapse to the transient prompt'
+print -r -- 'ok 5 - accepted lines collapse to the transient prompt'
 
 drain_for 0.3
 zpty -w -n nova_e2e 'echo cancelled-line'
@@ -253,7 +266,7 @@ zpty -w -n nova_e2e $'\x03'
 # zsh redraws without precmd after Ctrl-C: the collapsed prompt comes first
 # (no branch before the marker), then line-init restores the full prompt.
 wait_for_match "${main_marker}.*${branch_marker}.*${main_marker}" 'the collapsed then restored prompt after Ctrl-C'
-print -r -- 'ok 5 - interrupted lines collapse to the transient prompt'
+print -r -- 'ok 6 - interrupted lines collapse to the transient prompt'
 
 
 
@@ -273,7 +286,7 @@ wait_for_match "$gen_b_pattern" 'the generation after resizing'
 # One for the command's precmd, at least one more for the SIGWINCH re-render.
 (( match[1] >= gen_before + 2 )) || \
   fail "resize did not re-render the prompt (generation $gen_before -> $match[1])"
-print -r -- 'ok 6 - terminal resize re-renders the prompt'
+print -r -- 'ok 7 - terminal resize re-renders the prompt'
 
 
 
@@ -281,4 +294,4 @@ kill -KILL "$shell_pid"
 wait_for_shell_exit
 session_active=0
 wait_for_worker_cleanup
-print -r -- 'ok 7 - killed shell leaves no worker or runtime directory'
+print -r -- 'ok 8 - killed shell leaves no worker or runtime directory'

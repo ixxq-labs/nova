@@ -272,12 +272,12 @@ wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/no
 checkpoint_output
 zpty -w nova_e2e "cd -q -- ${(q)git_repo}"
 wait_for_match $'\e\\]7;file://[^\a]*/repo\a' 'the OSC 7 report after returning to the repo'
-# The terminal remembers the last report, so an unchanged cwd sends none.
+# A nested shell (simulated here) may report its own cwd; the next prompt must
+# restore this shell's directory even though it did not change.
 checkpoint_output
-zpty -w nova_e2e 'print -r -- "SAME_${:-CWD}"'
-wait_for_match $'SAME_CWD.*\e\\]133;A\a' 'the prompt after a command in the same cwd'
-output_since_checkpoint
-[[ $REPLY != *$'\e]7;'* ]] || fail 'an unchanged cwd was reported again'
+zpty -w nova_e2e $'printf \'\\e]7;file:///elsewhere\\a\'; print -r -- "NESTED_${:-DONE}"'
+wait_for_match $'NESTED_DONE.*\e\\]7;file://[^\a]*/repo\a.*\e\\]133;A\a' 'the cwd report restored after a nested report'
+
 
 print -r -- 'ok 6 - terminal integration marks commands and reports the cwd'
 

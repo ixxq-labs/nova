@@ -28,6 +28,9 @@ pub struct LoweredPrompt {
     pub rprompt: String,
     /// Collapsed `PROMPT` swapped in once a command is accepted; empty disables it.
     pub transient: String,
+    /// Raw OSC 7 sequence the shell writes to the terminal after a command or a
+    /// cwd change; empty disables it.
+    pub cwd_report: String,
 }
 
 pub fn render(config: &Config, state: &PromptState) -> LoweredPrompt {
@@ -128,6 +131,7 @@ fn lower_with_separator(rendered: RenderedPrompt, columns: u16, separator: &str)
             prompt: input_line.prompt,
             rprompt,
             transient: String::new(),
+            cwd_report: String::new(),
         };
     }
 
@@ -141,6 +145,7 @@ fn lower_with_separator(rendered: RenderedPrompt, columns: u16, separator: &str)
         prompt,
         rprompt,
         transient: String::new(),
+        cwd_report: String::new(),
     }
 }
 

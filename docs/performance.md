@@ -313,4 +313,4 @@ Interpretation:
   OSC 7 only on cwd changes and caching the `$TTY` fd brought the cost to
   about 0.04 ms; the transient prompt costs no measurable time.
 - All fields remain green except `first_prompt_lag_ms`, which includes bare
-  zsh startup (about 24 ms on this machine in the same session).
+  zsh startup (about 24 ms on this machine, measured earlier the same day).

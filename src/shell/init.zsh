@@ -50,6 +50,7 @@ else
   typeset -g _nova_reply_applied=0
   typeset -g _nova_reply_status=
   typeset -g _nova_transient_prompt=
+  typeset -g _nova_tty_fd=
   typeset -g _nova_full_prompt=
   typeset -g _nova_full_rprompt=
   typeset -g _nova_transient_active=0
@@ -358,8 +359,11 @@ else
   # Straight to the terminal, so redirected stdout (`exec >log`) captures no
   # integration bytes and the terminal still sees command boundaries.
   _nova_emit_mark() {
-    [[ -n ${TTY:-} ]] || return 0
-    print -nr -- "$1" 2>/dev/null >$TTY
+    if [[ -z $_nova_tty_fd ]]; then
+      # Opened once and reused: an open per command shows up in command_lag.
+      [[ -n ${TTY:-} ]] && sysopen -w -o cloexec -u _nova_tty_fd -- "$TTY" 2>/dev/null || return 0
+    fi
+    print -nr -u $_nova_tty_fd -- "$1" 2>/dev/null
     return 0
   }
 

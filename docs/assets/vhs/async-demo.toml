@@ -6,7 +6,7 @@ min_loading_ms = 500
 lines = 2
 
 [layout.line1]
-left = ["dir", "git_branch", "git_status", "rust_version", "duration"]
+left = ["dir", "git_branch", "git_status", "kube", "duration"]
 right = ["time"]
 
 [layout.line2]
@@ -35,11 +35,13 @@ stash = "$"
 ahead = "⇡"
 behind = "⇣"
 
-[segments.rust_version]
-icon = ""
-timeout_ms = 5000
-ttl_ms = 0
-min_loading_ms = 1000
+# A custom command segment. The sleep stands in for a slow CLI such as kubectl;
+# the prompt never waits for it.
+[segments.kube]
+command = "sleep 0.8; echo prod-eu"
+detect = ["k8s"]
+icon = "☸"
+ttl_ms = 60000
 style = { fg = "cyan", bold = true }
 
 [segments.duration]

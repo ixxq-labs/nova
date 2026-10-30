@@ -6,6 +6,12 @@ All notable user-facing changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `layout.style = "capsule"` draws each segment on a rounded Nerd Font pill
+  colored by its `style.bg` (a neutral gray when unset). The prompt character
+  stays bare, and pill caps and padding count toward truncation widths.
+
 ### Fixed
 
 - Renamed or copied files whose original path starts with `? `, `1 `, or `u `

@@ -166,6 +166,14 @@ The command runs with `sh -c` in the prompt's directory, never blocks the
 prompt, and shows its first output line. Empty output or a failing exit status
 hides the segment.
 
+Draw each segment on a rounded pill (uses each segment's `style.bg`, or a
+neutral gray):
+
+```toml
+[layout]
+style = "capsule"
+```
+
 Turn off terminal integration sequences:
 
 ```toml

@@ -6,7 +6,7 @@ pub mod zsh;
 use std::collections::BTreeMap;
 
 use crate::cache::AsyncValue;
-use crate::config::{Config, LineConfig, SegmentConfig};
+use crate::config::{Config, LineConfig, PromptStyle, SegmentConfig};
 use crate::segments::{
     SegmentContent, SegmentPart, Style, render_sync_segment, strip_control_chars,
 };
@@ -48,13 +48,17 @@ fn render_lowered(
     async_values: Option<&AsyncSegmentValues>,
 ) -> LoweredPrompt {
     // Control characters would corrupt the display and the worker protocol.
-    let separator = strip_control_chars(config.layout.separator());
+    let separator_text = strip_control_chars(config.layout.separator());
+    let separator = Joiner {
+        text: &separator_text,
+        capsule: config.layout.style == PromptStyle::Capsule,
+    };
     LoweredPrompt {
-        transient: render_transient(config, state, async_values, &separator),
+        transient: render_transient(config, state, async_values, separator),
         ..lower_with_separator(
             render_structured_inner(config, state, async_values),
             state.columns,
-            &separator,
+            separator,
         )
     }
 }
@@ -63,7 +67,7 @@ fn render_transient(
     config: &Config,
     state: &PromptState,
     async_values: Option<&AsyncSegmentValues>,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> String {
     let mut segments = render_side(&config.layout.transient, config, state, async_values);
     fit_side(
@@ -107,10 +111,14 @@ fn render_structured_inner(
 }
 
 pub fn lower(rendered: RenderedPrompt, columns: u16) -> LoweredPrompt {
-    lower_with_separator(rendered, columns, " ")
+    lower_with_separator(rendered, columns, Joiner::plain(" "))
 }
 
-fn lower_with_separator(rendered: RenderedPrompt, columns: u16, separator: &str) -> LoweredPrompt {
+fn lower_with_separator(
+    rendered: RenderedPrompt,
+    columns: u16,
+    separator: Joiner<'_>,
+) -> LoweredPrompt {
     let columns = usize::from(columns);
     let mut line1_left = rendered.line1_left;
     let mut line1_right = rendered.line1_right;
@@ -202,7 +210,7 @@ fn lower_first_line(
     left: &mut Vec<SegmentContent>,
     right: &[SegmentContent],
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> String {
     if right.is_empty() || columns < MIN_LINE_RIGHT_COLUMNS {
         fit_side(left, columns, separator);
@@ -231,7 +239,11 @@ struct LoweredInputLine {
     wrapped: bool,
 }
 
-fn lower_input_line(left: &[SegmentContent], columns: usize, separator: &str) -> LoweredInputLine {
+fn lower_input_line(
+    left: &[SegmentContent],
+    columns: usize,
+    separator: Joiner<'_>,
+) -> LoweredInputLine {
     let prompt_columns = prompt_columns_for_input(columns);
     if side_width(left, separator) <= prompt_columns {
         return LoweredInputLine {
@@ -276,7 +288,7 @@ fn lower_input_rprompt(
     left: &[SegmentContent],
     right: &[SegmentContent],
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> String {
     if input_line.wrapped || right.is_empty() {
         return String::new();
@@ -291,30 +303,69 @@ fn lower_input_rprompt(
     }
 }
 
-fn lower_side(segments: &[SegmentContent], separator: &str) -> String {
-    let separator = zsh::escape_prompt_text(separator);
+fn lower_side(segments: &[SegmentContent], separator: Joiner<'_>) -> String {
+    let text = zsh::escape_prompt_text(separator.text);
     segments
         .iter()
-        .map(zsh::lower_segment)
+        .map(|segment| {
+            if separator.decorates(segment) {
+                zsh::lower_capsule(segment, CAPSULE_DEFAULT_BG)
+            } else {
+                zsh::lower_segment(segment)
+            }
+        })
         .collect::<Vec<_>>()
-        .join(&separator)
+        .join(&text)
+}
+
+/// How segments on one side are joined and decorated. Capsule caps and padding
+/// count toward each segment's width so fitting and truncation stay exact.
+#[derive(Clone, Copy)]
+struct Joiner<'a> {
+    text: &'a str,
+    capsule: bool,
+}
+
+const CAPSULE_DEFAULT_BG: &str = "238";
+
+impl<'a> Joiner<'a> {
+    fn plain(text: &'a str) -> Self {
+        Self {
+            text,
+            capsule: false,
+        }
+    }
+
+    // The prompt character stays bare so the input position is unchanged.
+    fn decorates(self, segment: &SegmentContent) -> bool {
+        self.capsule && segment.id != "prompt_char"
+    }
+
+    fn segment_width(self, segment: &SegmentContent) -> usize {
+        let decoration = if self.decorates(segment) {
+            zsh::CAPSULE_DECORATION_WIDTH
+        } else {
+            0
+        };
+        width::display_width(&segment.text) + decoration
+    }
 }
 
 fn fit_prompt_line(
     left: &mut Vec<SegmentContent>,
     right: &mut Vec<SegmentContent>,
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) {
     fit_side(left, columns, separator);
     fit_right_side(right, columns, separator);
 }
 
-fn fit_side(segments: &mut Vec<SegmentContent>, columns: usize, separator: &str) {
+fn fit_side(segments: &mut Vec<SegmentContent>, columns: usize, separator: Joiner<'_>) {
     fit_aligned_side(segments, columns, separator, SideAlignment::Left);
 }
 
-fn fit_right_side(segments: &mut Vec<SegmentContent>, columns: usize, separator: &str) {
+fn fit_right_side(segments: &mut Vec<SegmentContent>, columns: usize, separator: Joiner<'_>) {
     fit_aligned_side(segments, columns, separator, SideAlignment::Right);
 }
 
@@ -327,7 +378,7 @@ enum SideAlignment {
 fn fit_aligned_side(
     segments: &mut Vec<SegmentContent>,
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
     alignment: SideAlignment,
 ) {
     remove_zero_width_segments(segments);
@@ -355,7 +406,10 @@ fn fit_aligned_side(
                 break;
             }
             SideAlignment::Left if segments.iter().any(|segment| segment.id == "prompt_char") => {
-                truncate_first_segment(segments, columns);
+                let decoration = segments.first().map_or(0, |segment| {
+                    separator.segment_width(segment) - width::display_width(&segment.text)
+                });
+                truncate_first_segment(segments, columns.saturating_sub(decoration));
                 remove_zero_width_segments(segments);
                 break;
             }
@@ -389,7 +443,7 @@ fn truncate_first_segment(segments: &mut [SegmentContent], columns: usize) {
 fn truncate_widest_non_prompt_segment_to_fit(
     segments: &mut [SegmentContent],
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> bool {
     let current_side_width = side_width(segments, separator);
     if current_side_width <= columns {
@@ -535,7 +589,7 @@ fn compact_dir_segment(segments: &mut [SegmentContent]) -> bool {
 fn shrink_branch_segment(
     segments: &mut [SegmentContent],
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
     min_width: usize,
 ) -> bool {
     shrink_segment_to_fit(
@@ -551,7 +605,7 @@ fn shrink_branch_segment(
 fn shrink_dir_segment_preserving_floor(
     segments: &mut [SegmentContent],
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> bool {
     let min_width = segments
         .iter()
@@ -566,7 +620,7 @@ fn shrink_dir_segment_preserving_floor(
 fn shrink_dir_segment(
     segments: &mut [SegmentContent],
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
     min_width: usize,
 ) -> bool {
     shrink_segment_to_fit(
@@ -583,7 +637,7 @@ fn shrink_segment_to_fit(
     segments: &mut [SegmentContent],
     id: &str,
     columns: usize,
-    separator: &str,
+    separator: Joiner<'_>,
     min_width: usize,
     truncate: impl Fn(&str, usize) -> String,
 ) -> bool {
@@ -772,26 +826,26 @@ fn set_segment_text(segment: &mut SegmentContent, text: String) {
     segment.parts.clear();
 }
 
-fn side_width(segments: &[SegmentContent], separator: &str) -> usize {
+fn side_width(segments: &[SegmentContent], separator: Joiner<'_>) -> usize {
     if segments.is_empty() {
         return 0;
     }
 
     let content_width = segments
         .iter()
-        .map(|segment| width::display_width(&segment.text))
+        .map(|segment| separator.segment_width(segment))
         .sum::<usize>();
     content_width + separator_total_width(segments, separator)
 }
 
-fn separator_total_width(segments: &[SegmentContent], separator: &str) -> usize {
-    width::display_width(separator) * segments.len().saturating_sub(1)
+fn separator_total_width(segments: &[SegmentContent], separator: Joiner<'_>) -> usize {
+    width::display_width(separator.text) * segments.len().saturating_sub(1)
 }
 
 fn lower_truncated_start_side(
     segments: &[SegmentContent],
     max_width: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> String {
     lower_side(
         &truncate_start_side(segments, max_width, separator),
@@ -802,7 +856,7 @@ fn lower_truncated_start_side(
 fn truncate_start_side(
     segments: &[SegmentContent],
     max_width: usize,
-    separator: &str,
+    separator: Joiner<'_>,
 ) -> Vec<SegmentContent> {
     if max_width == 0 || segments.is_empty() {
         return Vec::new();
@@ -812,7 +866,7 @@ fn truncate_start_side(
         return segments.to_vec();
     }
 
-    let separator_width = width::display_width(separator);
+    let separator_width = width::display_width(separator.text);
     let mut used_width = 0;
     let mut kept = Vec::new();
 
@@ -823,14 +877,18 @@ fn truncate_start_side(
             break;
         }
 
-        let segment_width = width::display_width(&segment.text);
+        let segment_width = separator.segment_width(segment);
         if segment_width <= available {
             kept.push(segment.clone());
             used_width += separator_before + segment_width;
             continue;
         }
 
-        let segment = truncate_segment_start(segment, available);
+        let decoration = segment_width - width::display_width(&segment.text);
+        if available <= decoration {
+            break;
+        }
+        let segment = truncate_segment_start(segment, available - decoration);
         if !segment.text.is_empty() {
             kept.push(segment);
         }
@@ -1167,6 +1225,7 @@ mod tests {
                 },
                 line2: LineConfig::default(),
                 transient: Vec::new(),
+                style: Default::default(),
             },
             terminal: Default::default(),
             segments: Default::default(),
@@ -1211,8 +1270,8 @@ mod tests {
         ];
         let mut right = vec![test_segment("time", "22:50:54")];
 
-        fit_prompt_line(&mut left, &mut right, 80, " ");
-        let input_line = lower_input_line(&left, 80, " ");
+        fit_prompt_line(&mut left, &mut right, 80, Joiner::plain(" "));
+        let input_line = lower_input_line(&left, 80, Joiner::plain(" "));
 
         assert!(input_line.wrapped);
         assert!(input_line.prompt.ends_with("\n❯ "));
@@ -1228,8 +1287,8 @@ mod tests {
         ];
         let mut right = Vec::new();
 
-        fit_prompt_line(&mut left, &mut right, 25, " ");
-        let input_line = lower_input_line(&left, 25, " ");
+        fit_prompt_line(&mut left, &mut right, 25, Joiner::plain(" "));
+        let input_line = lower_input_line(&left, 25, Joiner::plain(" "));
         let lines = input_line.prompt.lines().collect::<Vec<_>>();
 
         assert!(input_line.wrapped);
@@ -1301,6 +1360,7 @@ mod tests {
                 },
                 line2: LineConfig::default(),
                 transient: Vec::new(),
+                style: Default::default(),
             },
             terminal: Default::default(),
             segments: Default::default(),
@@ -1340,6 +1400,7 @@ mod tests {
                 },
                 line2: LineConfig::default(),
                 transient: Vec::new(),
+                style: Default::default(),
             },
             terminal: Default::default(),
             segments: Default::default(),
@@ -1407,6 +1468,7 @@ mod tests {
                 },
                 line2: LineConfig::default(),
                 transient: Vec::new(),
+                style: Default::default(),
             },
             terminal: Default::default(),
             segments: Default::default(),
@@ -1519,6 +1581,7 @@ mod tests {
                 },
                 line2: LineConfig::default(),
                 transient: Vec::new(),
+                style: Default::default(),
             },
             terminal: Default::default(),
             segments: Default::default(),
@@ -1537,7 +1600,7 @@ mod tests {
             test_segment("node_version", "24.16.0"),
         ];
 
-        fit_side(&mut segments, 14, " ");
+        fit_side(&mut segments, 14, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1555,7 +1618,7 @@ mod tests {
             test_segment("rust_version", " 1.96.1"),
         ];
 
-        fit_side(&mut segments, 6, " ");
+        fit_side(&mut segments, 6, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1573,7 +1636,7 @@ mod tests {
             test_segment("rust_version", " 1.96.1"),
         ];
 
-        fit_side(&mut segments, 25, " ");
+        fit_side(&mut segments, 25, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1592,7 +1655,7 @@ mod tests {
             test_segment("aws", " very-long-aws-profile (ap-northeast-1)"),
         ];
 
-        fit_side(&mut segments, 60, " ");
+        fit_side(&mut segments, 60, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1601,7 +1664,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("dir", "nova"), ("nix_shell", ""), ("aws", "")]
         );
-        assert_eq!(lower_side(&segments, " "), "nova  ");
+        assert_eq!(lower_side(&segments, Joiner::plain(" ")), "nova  ");
     }
 
     #[test]
@@ -1614,7 +1677,7 @@ mod tests {
             test_segment("prompt_char", "❯ "),
         ];
 
-        fit_side(&mut segments, 8, " ");
+        fit_side(&mut segments, 8, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1632,9 +1695,9 @@ mod tests {
             test_segment("custom", "abcdefghijklmnop"),
         ];
 
-        fit_side(&mut segments, 10, " ");
+        fit_side(&mut segments, 10, Joiner::plain(" "));
 
-        assert_eq!(side_width(&segments, " "), 10);
+        assert_eq!(side_width(&segments, Joiner::plain(" ")), 10);
         assert_eq!(segments[0].text, "ok");
         assert_eq!(segments[1].text, "abcdef…");
     }
@@ -1671,7 +1734,7 @@ mod tests {
             test_segment("rust_version", " 1.96.1"),
         ];
 
-        fit_side(&mut segments, 34, " ");
+        fit_side(&mut segments, 34, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1719,7 +1782,7 @@ mod tests {
             test_segment("git_status", "[+123?4]"),
         ];
 
-        fit_side(&mut segments, 9, " ");
+        fit_side(&mut segments, 9, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1737,7 +1800,7 @@ mod tests {
             test_segment("git_branch", "main"),
         ];
 
-        fit_side(&mut segments, 21, " ");
+        fit_side(&mut segments, 21, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1755,7 +1818,7 @@ mod tests {
             test_segment("prompt_char", "❯ "),
         ];
 
-        fit_side(&mut segments, 2, " ");
+        fit_side(&mut segments, 2, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1770,7 +1833,7 @@ mod tests {
     fn fitting_trims_prompt_char_gap_before_replacing_prompt_char() {
         let mut segments = vec![test_segment("prompt_char", "❯ ")];
 
-        fit_side(&mut segments, 1, " ");
+        fit_side(&mut segments, 1, Joiner::plain(" "));
 
         assert_eq!(
             segments
@@ -1788,7 +1851,7 @@ mod tests {
             test_segment("node_version", "24.16.0"),
         ];
 
-        fit_side(&mut segments, 1, " ");
+        fit_side(&mut segments, 1, Joiner::plain(" "));
 
         assert_no_zero_width_segments(&segments);
     }
@@ -1810,11 +1873,11 @@ mod tests {
             ],
         )];
 
-        fit_side(&mut segments, 4, " ");
+        fit_side(&mut segments, 4, Joiner::plain(" "));
 
         assert_eq!(segments[0].parts[0].style.fg.as_deref(), Some("green"));
         assert_eq!(
-            lower_side(&segments, " "),
+            lower_side(&segments, Joiner::plain(" ")),
             "%{\u{1b}[32m%}use…%{\u{1b}[0m%}"
         );
     }
@@ -1836,10 +1899,10 @@ mod tests {
             ],
         )];
 
-        fit_side(&mut segments, 6, " ");
+        fit_side(&mut segments, 6, Joiner::plain(" "));
 
         assert_eq!(
-            lower_side(&segments, " "),
+            lower_side(&segments, Joiner::plain(" ")),
             "%{\u{1b}[32m%}user%{\u{1b}[0m%}@…"
         );
     }
@@ -1861,10 +1924,10 @@ mod tests {
             ],
         )];
 
-        let truncated = truncate_start_side(&segments, 8, " ");
+        let truncated = truncate_start_side(&segments, 8, Joiner::plain(" "));
 
         assert_eq!(
-            lower_side(&truncated, " "),
+            lower_side(&truncated, Joiner::plain(" ")),
             "%{\u{1b}[32m%}…ef%{\u{1b}[0m%}@host"
         );
     }
@@ -1890,7 +1953,7 @@ mod tests {
 
         assert_eq!(segments[0].text, "…");
         assert_eq!(
-            lower_side(&segments, " "),
+            lower_side(&segments, Joiner::plain(" ")),
             "%{\u{1b}[32m%}…%{\u{1b}[0m%} tail"
         );
     }
@@ -1953,6 +2016,7 @@ mod tests {
                     },
                     line2: LineConfig::default(),
                     transient: Vec::new(),
+                    style: Default::default(),
                 },
                 terminal: Default::default(),
                 segments: Default::default(),
@@ -1962,6 +2026,40 @@ mod tests {
             let first_line = output.prompt.lines().next().unwrap_or_default();
 
             prop_assert!(visible_prompt_width(first_line) <= usize::from(columns));
+        }
+    }
+
+    #[test]
+    fn capsule_lines_never_overflow_the_terminal() {
+        let capsule = Joiner {
+            text: " ",
+            capsule: true,
+        };
+        for columns in 20..=120_u16 {
+            let output = lower_with_separator(
+                RenderedPrompt {
+                    line1_left: vec![
+                        test_segment("dir", "~/dev/oss/some-really-long-project-name"),
+                        test_segment("git_branch", " feature/an-extremely-long-branch-name"),
+                        test_segment("git_status", "[!+?]"),
+                        test_segment("duration", "+12.3s"),
+                    ],
+                    line1_right: vec![test_segment("time", "12:34:56")],
+                    line2_left: vec![test_segment("prompt_char", "❯ ")],
+                    line2_right: Vec::new(),
+                },
+                columns,
+                capsule,
+            );
+
+            for line in zsh::expand_right_align(&output.prompt, usize::from(columns)).lines() {
+                assert!(
+                    visible_prompt_width(line) <= usize::from(columns),
+                    "line overflows {columns} columns: {line:?}"
+                );
+            }
+            assert!(output.prompt.contains('\u{e0b6}'), "capsules are drawn at {columns}");
+            assert!(output.prompt.ends_with("❯ "), "the prompt character stays bare");
         }
     }
 

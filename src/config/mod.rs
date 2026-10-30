@@ -55,6 +55,17 @@ pub struct LayoutConfig {
     pub line2: LineConfig,
     /// Segments of the collapsed prompt left in scrollback; empty disables it.
     pub transient: Vec<String>,
+    pub style: PromptStyle,
+}
+
+/// How segments are drawn. `capsule` puts each segment on a rounded Nerd Font
+/// pill colored by its `style.bg` (a neutral gray when unset).
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptStyle {
+    #[default]
+    Plain,
+    Capsule,
 }
 
 /// Escape sequences that let terminals understand the prompt. Terminals that do
@@ -335,6 +346,7 @@ impl Default for LayoutConfig {
                 right: Vec::new(),
             },
             transient: vec!["prompt_char".to_string()],
+            style: PromptStyle::Plain,
         }
     }
 }

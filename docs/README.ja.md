@@ -169,6 +169,14 @@ command は prompt の directory で `sh -c` によって実行され、prompt �
 ことはありません。表示されるのは出力の最初の行です。出力が空のときや
 exit status が 0 以外のときは、segment を表示しません。
 
+各 segment を角の丸い pill の上に描画する（segment の `style.bg`、未設定なら
+落ち着いた gray を使います）:
+
+```toml
+[layout]
+style = "capsule"
+```
+
 terminal 連携の escape sequence を無効にする:
 
 ```toml

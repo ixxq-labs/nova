@@ -13,6 +13,9 @@ All notable user-facing changes are documented here. The format follows
   `transient = []` under `[layout]` to keep the full prompt in scrollback.
 - Terminal resizes re-render the prompt, so path and branch truncation follow
   the new width.
+- The worker starts collecting async segments for the directory it was
+  started in, so the first prompt after `.zshrc` usually arrives complete
+  instead of filling in.
 
 ### Changed
 
@@ -26,6 +29,8 @@ All notable user-facing changes are documented here. The format follows
   first prompt on macOS.
 - The worker checks the shell's liveness with `kill(2)` instead of forking
   `kill -0` every second.
+- Async collectors run with one slot per segment kind, so a slow `git status`
+  no longer delays runtime versions behind it (#41).
 - Worker protocol version 8. A shell that is still running an older worker
   falls back to the plain prompt until it is restarted.
 

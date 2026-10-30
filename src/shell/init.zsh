@@ -71,7 +71,7 @@ _nova_spawn_worker() {
   _nova_worker_alive && return 0
   unsetopt bg_nice 2>/dev/null || true
   [[ -p "$_nova_req_fifo" && -p "$_nova_resp_fifo" ]] || _nova_setup_runtime || return 1
-  NOVA_SESSION_TOKEN="$_nova_session_token" NOVA_PARENT_PID=$$ \
+  NOVA_SESSION_TOKEN="$_nova_session_token" NOVA_PARENT_PID=$$ PWD=$PWD \
     "$_nova_bin" worker --dir "$_nova_runtime_dir" \
     </dev/null >/dev/null 2>/dev/null &!
   _nova_worker_pid=$!

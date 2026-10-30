@@ -480,6 +480,13 @@ Owned by the worker. One layer for now.
   reads touch `last_used` while freshness still uses `collected_at`.
 - **Stale-while-revalidate**: an expired entry still renders as `Stale` while
   a refresh job runs.
+- **Concurrency**: the job pool has one thread per async segment kind, so a
+  slow collector (git on a network filesystem) never delays the others. It is
+  still bounded by the segment registry.
+- **Startup prefetch**: right after the handshake the worker schedules async
+  refreshes for the directory and environment it inherited from the shell
+  (`$PWD`, `PATH`, …). The rest of `.zshrc` usually runs before the first
+  `precmd`, so the first prompt is typically complete instead of loading.
 - **Inflight set**: a `HashSet<CacheKey>` prevents duplicate concurrent jobs
   for the same key.
 - TTLs are per segment: `git_branch` and `git_status` default to `ttl_ms = 0`
@@ -569,7 +576,6 @@ left  = ["prompt_char"]
 [async]
 initial_wait_ms = 0             # extra final wait budget after the first partial reply
 min_loading_ms = 50             # global cache-miss async update floor
-max_concurrency = 2
 timeout_ms = 1000               # per-segment override: [segments.<id>] timeout_ms
 ttl_ms = 300000                 # per-segment override: [segments.<id>] ttl_ms
 

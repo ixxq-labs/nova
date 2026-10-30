@@ -89,7 +89,11 @@ Each interactive shell owns one worker:
   worker later has to be respawned, zsh falls back to
   `${XDG_RUNTIME_DIR:-$TMPDIR}/nova-<shell-pid>/`, recreated with the
   `zsh/files` builtins plus `mkfifo`. Non-interactive shells remove the
-  prepared dir immediately.
+  prepared dir immediately, and a re-sourced init removes the dir it just
+  prepared because the loaded session keeps its own. The script only adopts a
+  prepared dir whose name carries its own pid, so a saved init script sourced
+  by another shell falls back instead of sharing FIFOs; the dir prepared when
+  that script was generated is then left behind once.
 - Lifetime is tied to the shell: the worker exits when the request FIFO reaches
   EOF (all writers closed — this happens automatically when the shell dies).
   A `zshexit` hook removes the runtime dir as a backup with the `zf_rm`

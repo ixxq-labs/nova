@@ -196,9 +196,25 @@ mod tests {
 
         assert!(script.contains("typeset -g _nova_runtime_dir=''\n"));
         assert!(script.contains(
-            "[[ -n $_nova_runtime_dir ]] || _nova_runtime_dir=\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$\""
+            "[[ ${_nova_runtime_dir:t} == nova-${$}-* ]] || _nova_runtime_dir=\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$\""
         ));
         assert!(!script.contains("@NOVA_RUNTIME_DIR@"));
+    }
+
+    #[test]
+    fn reloading_removes_the_unused_prepared_directory() {
+        let script = render_init_script_with(
+            Path::new("/tmp/nova"),
+            "'token'",
+            Some(Path::new("/tmp/nova-1-abc")),
+        );
+        let (guard, _rest) = script
+            .split_once("typeset -g _NOVA_ZSH_LOADED=1")
+            .expect("load guard");
+
+        assert!(guard.contains("local prepared='/tmp/nova-1-abc'"));
+        assert!(guard.contains("$prepared != ${_nova_runtime_dir:-}"));
+        assert!(guard.contains("zf_rm -rf -- \"$prepared\""));
     }
 
     #[test]

@@ -1,8 +1,20 @@
 # shellcheck shell=zsh
 
 if [[ -n ${_NOVA_ZSH_LOADED:-} ]]; then
+  # A re-sourced init prepared a directory that the loaded session never uses.
+  () {
+    local prepared=@NOVA_RUNTIME_DIR@
+    [[ -n $prepared && ${prepared:t} == nova-* && $prepared != ${_nova_runtime_dir:-} ]] || return 0
+    if (( $+builtins[zf_rm] )); then
+      zf_rm -rf -- "$prepared" 2>/dev/null
+    else
+      command rm -rf -- "$prepared" 2>/dev/null
+    fi
+    return 0
+  }
   return
 fi
+
 typeset -g _NOVA_ZSH_LOADED=1
 
 zmodload zsh/datetime zsh/system zsh/zselect 2>/dev/null || true
@@ -11,9 +23,10 @@ autoload -Uz add-zsh-hook add-zle-hook-widget
 
 typeset -g _nova_bin=@NOVA_BIN@
 typeset -g _nova_cmd_start=
-# `nova init zsh` normally prepares this directory and its FIFOs.
+# `nova init zsh` normally prepares this directory and its FIFOs. A saved init
+# script may be sourced by another shell, so only use a directory made for this one.
 typeset -g _nova_runtime_dir=@NOVA_RUNTIME_DIR@
-[[ -n $_nova_runtime_dir ]] || _nova_runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$"
+[[ ${_nova_runtime_dir:t} == nova-${$}-* ]] || _nova_runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$"
 typeset -g _nova_req_fifo="$_nova_runtime_dir/req"
 typeset -g _nova_resp_fifo="$_nova_runtime_dir/resp"
 typeset -g _nova_session_token=@NOVA_SESSION_TOKEN@

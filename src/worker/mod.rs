@@ -71,6 +71,37 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
     let _runtime_cleanup = RuntimeDirCleanup::new(options.runtime_dir.clone());
     spawn_parent_monitor(options.parent_pid, options.runtime_dir.clone());
 
+    let mut config_state = ConfigState::default();
+    let mut warned_config_error = false;
+    let mut warned_config_warnings = BTreeSet::new();
+    let worker_config = load_worker_config(
+        &mut config_state,
+        &mut warned_config_error,
+        &mut warned_config_warnings,
+    );
+
+    let (events, event_receiver) = mpsc::channel::<WorkerEvent>();
+    let mut decoder = FrameDecoder::default();
+    let mut cache = SegmentCache::new(CACHE_CAPACITY);
+    // One slot per async segment kind, so a slow probe (e.g. git on a network
+    // filesystem) never queues the others behind it; still bounded.
+    let job_pool = JobPool::new(ASYNC_SEGMENTS.len(), events.clone());
+    let mut active_prompt = None;
+
+    // zsh only connects on its first precmd, after the rest of .zshrc. Collect
+    // for the inherited cwd before blocking on the FIFOs so the first prompt can
+    // arrive already complete; results wait in the event channel.
+    if let Some(state) = prefetch_state() {
+        schedule_async_refreshes(
+            &job_pool,
+            &mut cache,
+            0,
+            state,
+            Arc::clone(&worker_config.config),
+            worker_config.generation,
+        );
+    }
+
     let request_path = options.runtime_dir.join("req");
     let response_path = options.runtime_dir.join("resp");
     let request = OpenOptions::new()
@@ -87,15 +118,6 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
             path: response_path,
             source,
         })?;
-
-    let mut config_state = ConfigState::default();
-    let mut warned_config_error = false;
-    let mut warned_config_warnings = BTreeSet::new();
-    let worker_config = load_worker_config(
-        &mut config_state,
-        &mut warned_config_error,
-        &mut warned_config_warnings,
-    );
     write_record(
         &mut response,
         &WorkerRecord::Handshake {
@@ -103,29 +125,7 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
             initial_wait_ms: initial_wait_ms(&worker_config.config),
         },
     )?;
-
-    let (events, event_receiver) = mpsc::channel::<WorkerEvent>();
     spawn_request_reader(request, events.clone());
-
-    let mut decoder = FrameDecoder::default();
-    let mut cache = SegmentCache::new(CACHE_CAPACITY);
-    // One slot per async segment kind, so a slow probe (e.g. git on a network
-    // filesystem) never queues the others behind it; still bounded.
-    let job_pool = JobPool::new(ASYNC_SEGMENTS.len(), events.clone());
-    let mut active_prompt = None;
-
-    // The rest of .zshrc usually runs before the first precmd, so collecting for
-    // the inherited cwd now lets the first prompt arrive already complete.
-    if let Some(state) = prefetch_state() {
-        schedule_async_refreshes(
-            &job_pool,
-            &mut cache,
-            0,
-            state,
-            Arc::clone(&worker_config.config),
-            worker_config.generation,
-        );
-    }
 
     loop {
         match event_receiver.recv() {

@@ -186,6 +186,31 @@ mod tests {
     }
 
     #[test]
+    fn timeout_also_stops_grandchildren_holding_stdout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        // `sh` forks `sleep` instead of exec-ing it, so killing `sh` alone would
+        // leave stdout open until `sleep` exits.
+        let config = segment("sleep 3; echo late");
+        let state = state(dir.path().to_path_buf());
+        let key = command_cache_key("slow", &config, &state, 1).expect("key");
+        let started = Instant::now();
+
+        let segments = collect_command_segment(
+            key,
+            &config,
+            &state,
+            Instant::now() + Duration::from_millis(100),
+        );
+
+        assert_eq!(segments[0].content, Err(AsyncSegmentFailure::Failed));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
     fn detect_gates_the_segment_on_cwd_markers() {
         let dir = tempfile::tempdir().expect("tempdir");
         let config = SegmentConfig {

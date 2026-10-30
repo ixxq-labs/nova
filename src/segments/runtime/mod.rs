@@ -40,11 +40,14 @@ pub use rust::{
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 use thiserror::Error;
 use wait_timeout::ChildExt;
 
@@ -118,6 +121,9 @@ fn collect_command_output(
     path: Option<&str>,
 ) -> Result<Vec<u8>, RuntimeCollectError> {
     let mut command = runtime_command(command, path);
+    // Own process group, so a timeout also stops grandchildren (`a; b`, pipes) that
+    // would otherwise keep stdout open and hold the job past its deadline.
+    command.process_group(0);
     let mut child = command
         .args(args)
         .current_dir(cwd)
@@ -137,6 +143,7 @@ fn collect_command_output(
     {
         Some(status) => status,
         None => {
+            kill_process_group(&child);
             let _ = child.kill();
             let _ = child.wait();
             let _ = stdout_reader.join();
@@ -188,6 +195,12 @@ fn runtime_command(command: &Path, path: Option<&str>) -> Command {
         command.env("PATH", path);
     }
     command
+}
+
+fn kill_process_group(child: &std::process::Child) {
+    if let Ok(pid) = i32::try_from(child.id()) {
+        let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
+    }
 }
 
 fn request_path(path: Option<&str>) -> Option<&str> {

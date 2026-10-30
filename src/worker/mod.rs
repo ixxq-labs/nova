@@ -19,9 +19,7 @@ use thiserror::Error;
 use crate::cache::{AsyncValue, CacheKey, SegmentCache};
 use crate::config::error::ConfigWarning;
 use crate::config::load::{ConfigSnapshot, ConfigSource};
-use crate::config::{
-    Config, DEFAULT_INITIAL_WAIT_MS, DEFAULT_MIN_LOADING_MS, SegmentConfig, TerminalConfig,
-};
+use crate::config::{Config, DEFAULT_INITIAL_WAIT_MS, DEFAULT_MIN_LOADING_MS, SegmentConfig};
 use crate::render::zsh::with_terminal_integration;
 use crate::render::{AsyncSegmentValues, LoweredPrompt, render_with_async};
 use crate::segments::runtime::{
@@ -294,12 +292,7 @@ fn handle_request_chunk(
             load_worker_config(config_state, warned_config_error, warned_config_warnings);
         let config = worker_config.config;
         let async_values = async_values(cache, &request.state, &config, worker_config.generation);
-        // Terminals remember the last OSC 7 report, so only send it when the cwd
-        // changes; updates for this prompt keep the same decision.
-        let reports_cwd = active_prompt
-            .as_ref()
-            .is_none_or(|prompt| prompt.state.cwd != request.state.cwd);
-        let output = render_for_shell(&config, &request.state, &async_values, reports_cwd);
+        let output = render_for_shell(&config, &request.state, &async_values);
         let status = render_status(&config, &async_values);
         write_record(
             response,
@@ -317,7 +310,6 @@ fn handle_request_chunk(
             config_generation: worker_config.generation,
             status,
             output,
-            reports_cwd,
         });
         schedule_async_refreshes(
             job_pool,
@@ -340,7 +332,6 @@ struct ActivePrompt {
     config_generation: u64,
     status: RenderStatus,
     output: LoweredPrompt,
-    reports_cwd: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -447,12 +438,7 @@ fn write_update_if_active(
         &active_prompt.config,
         active_prompt.config_generation,
     );
-    let output = render_for_shell(
-        &active_prompt.config,
-        &active_prompt.state,
-        &async_values,
-        active_prompt.reports_cwd,
-    );
+    let output = render_for_shell(&active_prompt.config, &active_prompt.state, &async_values);
     let status = render_status(&active_prompt.config, &async_values);
     if output == active_prompt.output && status == active_prompt.status {
         return Ok(());
@@ -760,15 +746,10 @@ fn render_for_shell(
     config: &Config,
     state: &PromptState,
     async_values: &AsyncSegmentValues,
-    reports_cwd: bool,
 ) -> LoweredPrompt {
-    let terminal = TerminalConfig {
-        report_cwd: config.terminal.report_cwd && reports_cwd,
-        ..config.terminal.clone()
-    };
     with_terminal_integration(
         render_with_async(config, state, async_values),
-        &terminal,
+        &config.terminal,
         &state.cwd,
         state.env.host.as_deref(),
     )
@@ -1313,7 +1294,6 @@ mod tests {
             config_generation,
             status,
             output,
-            reports_cwd: true,
         });
         let finished_at = Instant::now();
         let result = JobResult {
@@ -1424,7 +1404,6 @@ mod tests {
             config_generation,
             status,
             output,
-            reports_cwd: true,
         });
         let finished_at = Instant::now();
         let result = JobResult {
@@ -1510,7 +1489,7 @@ mod tests {
             .expect("rust cache key should be available");
         let mut cache = SegmentCache::new(4);
         let initial_values = async_values(&mut cache, &state, &config, config_generation);
-        let output = render_for_shell(&config, &state, &initial_values, true);
+        let output = render_for_shell(&config, &state, &initial_values);
         let status = render_status(&config, &initial_values);
         assert_eq!(status, RenderStatus::Partial);
 
@@ -1521,7 +1500,6 @@ mod tests {
             config_generation,
             status,
             output: output.clone(),
-            reports_cwd: true,
         });
         let finished_at = Instant::now();
         let result = JobResult {

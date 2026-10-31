@@ -144,12 +144,15 @@ nova prompt --format preview --cwd "$PWD" --cols "${COLUMNS:-80}" --duration-ms 
 すべての key は [examples/config.toml](../examples/config.toml) に説明があります。
 よく使う設定例:
 
-実行済みの行を directory と prompt character に畳む:
+実行済みの行を directory、終了コード、prompt character に畳む:
 
 ```toml
 [layout]
-transient = ["dir", "prompt_char"]
+transient = ["dir", "exit_status", "prompt_char"]
 ```
+
+通常の prompt と同じく、畳んだ行にはその前に実行した command の結果が出ます。
+そのため `[127]` や赤い `❯` は、失敗した command の次の行に付きます。
 
 manifest がある directory でだけ Kubernetes の context を表示する:
 

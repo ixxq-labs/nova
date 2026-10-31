@@ -141,12 +141,15 @@ nova prompt --format preview --cwd "$PWD" --cols "${COLUMNS:-80}" --duration-ms 
 Every key is documented in [examples/config.toml](examples/config.toml). A few
 common recipes:
 
-Collapse accepted lines to the directory and prompt character:
+Collapse accepted lines to the directory, exit status, and prompt character:
 
 ```toml
 [layout]
-transient = ["dir", "prompt_char"]
+transient = ["dir", "exit_status", "prompt_char"]
 ```
+
+Like the full prompt, each collapsed line shows the status of the command
+before it, so `[127]` and the red `❯` land on the line after a failure.
 
 Show the Kubernetes context, but only in directories that have manifests:
 

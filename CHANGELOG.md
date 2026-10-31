@@ -17,7 +17,7 @@ All notable user-facing changes are documented here. The format follows
   async segment showing the command's first output line, with optional
   `detect` markers, `icon`, `style`, `ttl_ms`, and `timeout_ms`.
 - Opt-in transient prompt: set `layout.transient` (for example
-  `["dir", "prompt_char"]`) and accepted and interrupted (`Ctrl-C`) lines
+  `["dir", "exit_status", "prompt_char"]`) and accepted and interrupted (`Ctrl-C`) lines
   collapse to those segments. It defaults to `[]`, which keeps the full prompt
   in scrollback.
 - Terminal resizes re-render the prompt, so path and branch truncation follow

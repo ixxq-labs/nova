@@ -5,7 +5,7 @@ min_loading_ms = 500
 [layout]
 lines = 2
 # Collapse accepted lines but keep the directory each command ran in.
-transient = ["dir", "prompt_char"]
+transient = ["dir", "exit_status", "prompt_char"]
 
 [layout.line1]
 left = ["dir", "git_branch", "git_status", "kube", "duration"]

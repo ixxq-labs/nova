@@ -74,6 +74,10 @@ dashboard details.
 
 Releases are built by cargo-dist from version tags such as `v0.1.0`.
 
+Every user-visible change adds an entry under `## [Unreleased]` in
+[CHANGELOG.md](CHANGELOG.md). A version bump PR renames that section to the
+new version and date and adds its compare link.
+
 The release workflow publishes:
 
 - shell installer: `nova-installer.sh`

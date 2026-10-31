@@ -64,6 +64,38 @@ fn start_sgr(style: &Style) -> Option<String> {
     }
 }
 
+const RIGHT_ALIGN_PREFIX: &str = "%{\x1b[999C\x1b[";
+const RIGHT_ALIGN_SUFFIX: &str = "D%}";
+
+/// Moves the cursor so the next `width` columns end one column before the
+/// right edge. The terminal clamps `999C` to its current width, so the
+/// alignment survives a resize without re-rendering, and zsh counts the
+/// sequence as zero width, so it never sees a wrapped line.
+pub fn right_align(width: usize) -> String {
+    format!("{RIGHT_ALIGN_PREFIX}{width}{RIGHT_ALIGN_SUFFIX}")
+}
+
+/// Replaces [`right_align`] sequences with spaces for a fixed `columns`
+/// width, for previews that are not drawn by zsh.
+pub fn expand_right_align(prompt: &str, columns: usize) -> String {
+    prompt
+        .split('\n')
+        .map(|line| {
+            let Some((left, rest)) = line.split_once(RIGHT_ALIGN_PREFIX) else {
+                return line.to_string();
+            };
+            let Some((width, right)) = rest.split_once(RIGHT_ALIGN_SUFFIX) else {
+                return line.to_string();
+            };
+            let width = width.parse::<usize>().unwrap_or(0);
+            let left_width = super::visible_prompt_width(left);
+            let padding = columns.saturating_sub(left_width + width + 1).max(1);
+            format!("{left}{}{right}", " ".repeat(padding))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn wrap_non_printing(input: &str) -> String {
     format!("%{{{input}%}}")
 }
@@ -140,6 +172,29 @@ fn parse_truecolor(color: &str) -> Option<(u8, u8, u8)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn right_align_is_a_zero_width_cursor_move() {
+        assert_eq!(right_align(8), "%{\x1b[999C\x1b[8D%}");
+        assert_eq!(super::super::visible_prompt_width(&right_align(8)), 0);
+    }
+
+    #[test]
+    fn expands_right_align_into_padding_that_keeps_the_last_column_free() {
+        let prompt = format!(
+            "%{{\x1b[32m%}}~/nova%{{\x1b[0m%}}{}12:00\n❯ ",
+            right_align(5)
+        );
+
+        assert_eq!(
+            expand_right_align(&prompt, 20),
+            format!(
+                "%{{\x1b[32m%}}~/nova%{{\x1b[0m%}}{}12:00\n❯ ",
+                " ".repeat(8)
+            )
+        );
+        assert_eq!(expand_right_align("plain\nline", 20), "plain\nline");
+    }
 
     #[test]
     fn escapes_percent_and_wraps_ansi_sequences() {

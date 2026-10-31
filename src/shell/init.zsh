@@ -51,6 +51,10 @@ typeset -g _nova_last_duration_ms=
 typeset -g _nova_last_applied_gen=0
 typeset -g _nova_reply_applied=0
 typeset -g _nova_reply_status=
+typeset -g _nova_transient_prompt=
+typeset -g _nova_full_prompt=
+typeset -g _nova_full_rprompt=
+typeset -g _nova_transient_active=0
 typeset -g _nova_wait_cs=0
 typeset -g _nova_handshake_ok=0
 typeset -g _nova_failures=0
@@ -232,7 +236,7 @@ _nova_apply_record() {
   emulate -L zsh
   local record=$1
   local -a fields
-  fields=("${(0)record}")
+  fields=("${(@0)record}")
 
   case "${fields[1]}" in
     H)
@@ -248,6 +252,9 @@ _nova_apply_record() {
       _nova_reply_status="${fields[3]}"
       PROMPT="${fields[4]}"
       RPROMPT="${fields[5]}"
+      _nova_full_prompt=$PROMPT
+      _nova_full_rprompt=$RPROMPT
+      _nova_transient_prompt="${fields[6]}"
       _nova_reply_applied=1
       ;;
   esac
@@ -257,6 +264,8 @@ _nova_fallback() {
   emulate -L zsh
   PROMPT='%~ %# '
   RPROMPT=''
+  _nova_transient_prompt=
+  _nova_full_prompt=
   if (( _nova_failures >= 3 && ! _nova_warned_dead )); then
     print -ru2 -- 'nova: worker unavailable; using fallback prompt for this session'
     _nova_warned_dead=1
@@ -282,6 +291,13 @@ _nova_drain_and_redraw() {
 
 _nova_zle_line_init() {
   emulate -L zsh
+  # Ctrl-C skips precmd, so a collapsed prompt would otherwise stay on the new line.
+  if (( _nova_transient_active )); then
+    _nova_transient_active=0
+    PROMPT=$_nova_full_prompt
+    RPROMPT=$_nova_full_rprompt
+    zle reset-prompt 2>/dev/null || true
+  fi
   _nova_register_update_handler
   [[ -n ${_nova_resp_fd:-} ]] || return 0
   _nova_drain_and_redraw
@@ -304,6 +320,34 @@ _nova_zle_keymap_select() {
   fi
 }
 
+_nova_zle_line_finish() {
+  emulate -L zsh
+  [[ -n $_nova_transient_prompt ]] || return 0
+  PROMPT=$_nova_transient_prompt
+  RPROMPT=
+  _nova_transient_active=1
+  zle reset-prompt 2>/dev/null || true
+}
+
+# Ctrl-C aborts the line without running zle-line-finish, so collapse it here too.
+_nova_on_interrupt() {
+  emulate -L zsh
+  zle || return 0
+  _nova_zle_line_finish
+  zle -R 2>/dev/null || true
+}
+
+
+# Re-render at the new width; the reply arrives through the zle -F handler.
+_nova_on_winch() {
+  emulate -L zsh
+  zle || return 0
+  [[ -n ${_nova_req_fd:-} && -n ${_nova_resp_fd:-} ]] || return 0
+  (( _nova_gen++ ))
+  _nova_send_request "$_nova_last_exit_status" "$_nova_last_duration_ms" || _nova_mark_dead
+  return 0
+}
+
 _nova_preexec() {
   emulate -L zsh
   _nova_cmd_start=${EPOCHREALTIME:-}
@@ -312,6 +356,7 @@ _nova_preexec() {
 _nova_precmd() {
   local exit_status=$?
   emulate -L zsh
+  _nova_transient_active=0
 
   local duration_ms=
   if [[ -n ${_nova_cmd_start:-} && -n ${EPOCHREALTIME:-} ]]; then
@@ -366,6 +411,8 @@ _nova_precmd() {
   if (( ! _nova_reply_applied )); then
     PROMPT='%~ %# '
     RPROMPT=''
+    _nova_transient_prompt=
+    _nova_full_prompt=
   fi
 
   _nova_cmd_start=
@@ -387,4 +434,55 @@ add-zsh-hook preexec _nova_preexec
 add-zsh-hook precmd _nova_precmd
 add-zsh-hook zshexit _nova_cleanup
 add-zle-hook-widget line-init _nova_zle_line_init 2>/dev/null || true
+add-zle-hook-widget line-finish _nova_zle_line_finish 2>/dev/null || true
 add-zle-hook-widget keymap-select _nova_zle_keymap_select 2>/dev/null || true
+# Traps are defined at top level: `emulate -L` would make a trap set inside a
+# function local. Handlers set earlier, as TRAP* functions or with the trap
+# builtin, keep running after Nova's.
+if [[ -o interactive ]]; then
+  typeset -gA _nova_user_traps
+  # Trap-builtin handlers live outside $functions, and a $(trap) subshell lists
+  # none, so read this shell's listing through a file.
+  () {
+    local file=$_nova_runtime_dir/traps
+    [[ -d $_nova_runtime_dir ]] && { trap } >| $file 2>/dev/null || return 0
+    local -a words=(${(z)"$(<$file)"})
+    local -i i
+    for (( i = 1; i + 3 <= $#words; i++ )); do
+      [[ $words[i] == trap && $words[i+1] == -- && $words[i+3] == (INT|WINCH) ]] || continue
+      _nova_user_traps[$words[i+3]]=${(Q)words[i+2]}
+    done
+    if (( $+builtins[zf_rm] )); then
+      zf_rm -f -- $file
+    fi
+    return 0
+  }
+
+  if (( $+functions[TRAPWINCH] )) && [[ $functions[TRAPWINCH] != *_nova_on_winch* ]]; then
+    functions[_nova_user_trapwinch]=$functions[TRAPWINCH]
+  fi
+  TRAPWINCH() {
+    _nova_on_winch
+    if (( $+functions[_nova_user_trapwinch] )); then
+      _nova_user_trapwinch "$@"
+    elif [[ -n ${_nova_user_traps[WINCH]:-} ]]; then
+      eval "${_nova_user_traps[WINCH]}"
+    fi
+    return 0
+  }
+
+  if (( $+functions[TRAPINT] )) && [[ $functions[TRAPINT] != *_nova_on_interrupt* ]]; then
+    functions[_nova_user_trapint]=$functions[TRAPINT]
+  fi
+  TRAPINT() {
+    _nova_on_interrupt
+    if (( $+functions[_nova_user_trapint] )); then
+      _nova_user_trapint "$@"
+      return
+    elif [[ -n ${_nova_user_traps[INT]:-} ]]; then
+      eval "${_nova_user_traps[INT]}"
+    fi
+    # Keep zsh's interrupt behavior: the line is aborted either way.
+    return $(( 128 + $1 ))
+  }
+fi

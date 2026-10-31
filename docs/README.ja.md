@@ -21,9 +21,9 @@ worker が集め、届いた時点で prompt に反映します。prompt が表�
 - **起動が速い。** shell 起動時に fork するのは `nova init` と worker だけです。
   worker は `.zshrc` の残りが実行されている間に現在の directory の情報を集め
   始めるので、最初の prompt も多くの場合は揃った状態で表示されます。
-- **Transient prompt。** 実行済みの行は `❯` だけに畳まれ、scrollback が
-  すっきりします。2 行 layout の右寄せ部分は、pane の分割や window の resize
-  をしても崩れません。
+- **Transient prompt（任意）。** 実行済みの行を directory と `❯` などに畳んで、
+  scrollback をすっきりさせられます。2 行 layout の右寄せ部分は、pane の分割や
+  window の resize をしても崩れません。
 - **Custom segment。** 任意の command を数行の TOML で非同期 segment にできます。
 - **Terminal との連携。** OSC 133 の prompt mark（Ghostty、WezTerm、kitty、
   iTerm2、VS Code で prompt 間を移動できます）と、OSC 7 による directory の
@@ -144,11 +144,11 @@ nova prompt --format preview --cwd "$PWD" --cols "${COLUMNS:-80}" --duration-ms 
 すべての key は [examples/config.toml](../examples/config.toml) に説明があります。
 よく使う設定例:
 
-scrollback に prompt を畳まずに残す:
+実行済みの行を directory と prompt character に畳む:
 
 ```toml
 [layout]
-transient = []
+transient = ["dir", "prompt_char"]
 ```
 
 manifest がある directory でだけ Kubernetes の context を表示する:

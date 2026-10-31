@@ -345,7 +345,7 @@ impl Default for LayoutConfig {
                 left: vec!["exit_status".to_string(), "prompt_char".to_string()],
                 right: Vec::new(),
             },
-            transient: vec!["prompt_char".to_string()],
+            transient: Vec::new(),
             style: PromptStyle::Plain,
         }
     }

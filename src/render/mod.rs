@@ -1132,8 +1132,16 @@ mod tests {
     }
 
     #[test]
-    fn transient_prompt_defaults_to_the_prompt_character() {
-        let config = Config::default();
+    fn transient_prompt_is_off_by_default() {
+        assert_eq!(
+            render(&Config::default(), &transient_state(0)).transient,
+            ""
+        );
+    }
+
+    #[test]
+    fn transient_prompt_colors_the_prompt_character_on_failure() {
+        let config = Config::from_toml("[layout]\ntransient = [\"prompt_char\"]\n").expect("toml");
 
         assert_eq!(render(&config, &transient_state(0)).transient, "❯ ");
         assert_eq!(

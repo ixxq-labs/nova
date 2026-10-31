@@ -4,6 +4,8 @@ min_loading_ms = 500
 
 [layout]
 lines = 2
+# The README GIF was recorded with this transient prompt.
+transient = ["prompt_char"]
 
 [layout.line1]
 left = ["dir", "git_branch", "git_status", "kube", "duration"]

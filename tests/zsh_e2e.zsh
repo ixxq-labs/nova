@@ -162,6 +162,7 @@ command mkdir -p -- "$home_dir" "$temp_dir" "$state_dir" "$git_repo"
   print -r -- ''
   print -r -- '[layout]'
   print -r -- 'lines = 1'
+  print -r -- 'transient = ["prompt_char"]'
   print -r -- ''
   print -r -- '[layout.line1]'
   print -r -- 'left = ["dir", "git_branch", "prompt_char"]'

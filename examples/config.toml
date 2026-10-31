@@ -53,8 +53,9 @@ lines = 2
 # rounded Nerd Font pill. Pills use the segment's style.bg, or a neutral gray.
 # style = "capsule"
 # Segments left in scrollback after a command is accepted (transient prompt).
-# The full prompt is only kept for the line being edited. Set to [] to disable.
-transient = ["prompt_char"]
+# Defaults to [], which keeps the full prompt. For example, ["dir", "prompt_char"]
+# keeps the full prompt only for the line being edited.
+transient = []
 
 [layout.line1]
 left = [

@@ -1,6 +1,70 @@
 //! zsh prompt lowering and escaping.
 
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
+
+use crate::config::TerminalConfig;
+use crate::render::LoweredPrompt;
 use crate::segments::{SegmentContent, SegmentPart, Style};
+
+const PROMPT_START: &str = "%{\x1b]133;A\x07%}";
+const INPUT_START: &str = "%{\x1b]133;B\x07%}";
+
+/// Adds OSC 133 prompt marks and the OSC 7 working directory for a live zsh
+/// session. The shell adapter emits the matching command marks (C and D).
+pub fn with_terminal_integration(
+    output: LoweredPrompt,
+    config: &TerminalConfig,
+    cwd: &Path,
+    host: Option<&str>,
+) -> LoweredPrompt {
+    // Not part of PROMPT: zsh writes it once per command or cwd change instead of
+    // on every redraw, and re-sends it after a nested shell overwrote it.
+    let cwd_report = if config.report_cwd {
+        format!(
+            "\x1b]7;file://{}{}\x07",
+            host.map(percent_encode_host).unwrap_or_default(),
+            percent_encode_path(cwd)
+        )
+    } else {
+        String::new()
+    };
+    let mark = |prompt: String| {
+        if config.semantic_prompts && !prompt.is_empty() {
+            format!("{PROMPT_START}{prompt}{INPUT_START}")
+        } else {
+            prompt
+        }
+    };
+
+    LoweredPrompt {
+        prompt: mark(output.prompt),
+        rprompt: output.rprompt,
+        transient: mark(output.transient),
+        cwd_report,
+    }
+}
+
+fn percent_encode_path(path: &Path) -> String {
+    percent_encode(path.as_os_str().as_bytes(), |byte| byte == b'/')
+}
+
+fn percent_encode_host(host: &str) -> String {
+    percent_encode(host.as_bytes(), |_byte| false)
+}
+
+fn percent_encode(bytes: &[u8], keep: impl Fn(u8) -> bool) -> String {
+    bytes
+        .iter()
+        .map(|&byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) || keep(byte) {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
 
 pub fn lower_segment(segment: &SegmentContent) -> String {
     if segment.uses_parts() {
@@ -172,6 +236,60 @@ fn parse_truecolor(color: &str) -> Option<(u8, u8, u8)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lowered(prompt: &str, transient: &str) -> LoweredPrompt {
+        LoweredPrompt {
+            prompt: prompt.to_string(),
+            rprompt: "12:00".to_string(),
+            transient: transient.to_string(),
+            cwd_report: String::new(),
+        }
+    }
+
+    #[test]
+    fn terminal_integration_marks_prompts_and_reports_an_encoded_cwd() {
+        let output = with_terminal_integration(
+            lowered("~/nova\n❯ ", "❯ "),
+            &TerminalConfig::default(),
+            Path::new("/tmp/my dir/100%"),
+            Some("mac book"),
+        );
+
+        assert_eq!(
+            output.prompt,
+            "%{\x1b]133;A\x07%}~/nova\n❯ %{\x1b]133;B\x07%}"
+        );
+        assert_eq!(
+            output.cwd_report,
+            "\x1b]7;file://mac%20book/tmp/my%20dir/100%25\x07"
+        );
+        assert_eq!(output.transient, "%{\x1b]133;A\x07%}❯ %{\x1b]133;B\x07%}");
+        assert_eq!(output.rprompt, "12:00");
+        assert_eq!(super::super::visible_prompt_width(&output.transient), 2);
+    }
+
+    #[test]
+    fn terminal_integration_can_be_disabled_and_keeps_transient_off() {
+        let config = TerminalConfig {
+            semantic_prompts: false,
+            report_cwd: false,
+        };
+        let output = with_terminal_integration(lowered("❯ ", ""), &config, Path::new("/tmp"), None);
+        assert_eq!(output, lowered("❯ ", ""));
+
+        let output = with_terminal_integration(
+            lowered("❯ ", ""),
+            &TerminalConfig::default(),
+            Path::new("/tmp"),
+            None,
+        );
+        assert_eq!(
+            output.transient, "",
+            "a disabled transient prompt stays empty"
+        );
+        assert_eq!(output.cwd_report, "\x1b]7;file:///tmp\x07");
+        assert!(!output.prompt.contains("]7;"), "OSC 7 stays out of PROMPT");
+    }
 
     #[test]
     fn right_align_is_a_zero_width_cursor_move() {

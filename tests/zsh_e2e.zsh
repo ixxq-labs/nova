@@ -127,6 +127,8 @@ wait_for_shell_exit() {
   local -F deadline=$(( EPOCHREALTIME + 10 ))
 
   while (( EPOCHREALTIME < deadline )); do
+    # zpty -t keeps reporting a running command while unread output is pending.
+    drain_output
     zpty -t nova_e2e || return 0
     zselect -t 5 >/dev/null 2>&1 || true
   done
@@ -258,9 +260,52 @@ checkpoint_output
 zpty -w -n nova_e2e 'i'
 zpty -w nova_e2e 'print -r -- "TRANSIENT=<$PROMPT|$RPROMPT>"'
 # While the command runs, PROMPT still holds the collapsed prompt swapped in at line-finish.
-wait_for_output 'TRANSIENT=<NOVA_E2E_MAIN> |>' 'the transient prompt during command execution'
+wait_for_output $'TRANSIENT=<%{\e]133;A\a%}NOVA_E2E_MAIN> %{\e]133;B\a%}|>' 'the transient prompt during command execution'
+
 wait_for_output "$main_marker" 'the full prompt after the command'
 print -r -- 'ok 5 - accepted lines collapse to the transient prompt'
+
+checkpoint_output
+zpty -w nova_e2e 'cd -q ..; print -r -- "OSC_${:-DONE}"; false'
+wait_for_output 'OSC_DONE' 'the command used to check terminal marks'
+wait_for_match $'\e\\]133;C\a.*OSC_DONE.*\e\\]133;D;1\a.*\e\\]7;file://[^\a]*/nova-zsh-e2e[^/\a]*\a.*\e\\]133;A\a' \
+  'OSC 133 command marks and the OSC 7 report for the new cwd'
+checkpoint_output
+zpty -w nova_e2e "cd -q -- ${(q)git_repo}"
+wait_for_match $'\e\\]7;file://[^\a]*/repo\a' 'the OSC 7 report after returning to the repo'
+# A nested shell (simulated here) may report its own cwd; the next prompt must
+# restore this shell's directory even though it did not change.
+checkpoint_output
+zpty -w nova_e2e $'printf \'\\e]7;file:///elsewhere\\a\'; print -r -- "NESTED_${:-DONE}"'
+wait_for_match $'NESTED_DONE.*\e\\]7;file://[^\a]*/repo\a.*\e\\]133;A\a' 'the cwd report restored after a nested report'
+
+
+# A reply that arrives after precmd stopped waiting reports through the same
+# helper: a pending report is written exactly once.
+checkpoint_output
+zpty -w nova_e2e $'_nova_cwd_report=$\'\\e]7;file:///la\'"te"$\'\\a\'; _nova_cwd_report_due=1; _nova_emit_cwd_report; _nova_emit_cwd_report; print -r -- "LATE_${:-DONE}"'
+wait_for_match 'LATE_DONE' 'the late cwd report check'
+output_since_checkpoint
+typeset -a late_pieces=("${(@s|file:///late|)REPLY}")
+(( ${#late_pieces} == 2 )) || \
+  fail "the pending cwd report was not written exactly once: ${(qqq)REPLY}"
+print -r -- 'ok 6 - terminal integration marks commands and reports the cwd'
+
+# With the shell's stdout redirected, marks must still reach the terminal and
+# never land in the captured output.
+zpty -w nova_e2e 'exec 3>&1 >"$NOVA_E2E_STATE/captured.log"'
+drain_for 0.3
+checkpoint_output
+zpty -w nova_e2e 'print -r -- "CAPTURED_${:-LINE}"'
+wait_for_match $'\e\\]133;D;0\a' 'the command marks while stdout is redirected'
+zpty -w nova_e2e 'exec >&3 3>&-'
+drain_for 0.3
+[[ $(<"$state_dir/captured.log") == CAPTURED_LINE ]] || \
+  fail "redirected output captured integration bytes: ${(qqq)$(<"$state_dir/captured.log")}"
+print -r -- 'ok 7 - command marks bypass redirected stdout'
+
+
+
 
 drain_for 0.3
 zpty -w -n nova_e2e 'echo cancelled-line'
@@ -271,7 +316,7 @@ zpty -w -n nova_e2e $'\x03'
 # (no branch before the marker), then line-init restores the full prompt.
 wait_for_match "${main_marker}.*${branch_marker}.*${main_marker}" 'the collapsed then restored prompt after Ctrl-C'
 wait_for_output 'USER_INT' 'the user INT trap chained after Nova'
-print -r -- 'ok 6 - interrupted lines collapse to the transient prompt'
+print -r -- 'ok 8 - interrupted lines collapse to the transient prompt'
 
 
 
@@ -292,7 +337,7 @@ wait_for_match "$gen_b_pattern" 'the generation after resizing'
 # One for the command's precmd, at least one more for the SIGWINCH re-render.
 (( match[1] >= gen_before + 2 )) || \
   fail "resize did not re-render the prompt (generation $gen_before -> $match[1])"
-print -r -- 'ok 7 - terminal resize re-renders the prompt'
+print -r -- 'ok 9 - terminal resize re-renders the prompt'
 
 
 
@@ -300,4 +345,4 @@ kill -KILL "$shell_pid"
 wait_for_shell_exit
 session_active=0
 wait_for_worker_cleanup
-print -r -- 'ok 8 - killed shell leaves no worker or runtime directory'
+print -r -- 'ok 10 - killed shell leaves no worker or runtime directory'

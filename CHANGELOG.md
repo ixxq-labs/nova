@@ -13,6 +13,12 @@ All notable user-facing changes are documented here. The format follows
   `transient = []` under `[layout]` to keep the full prompt in scrollback.
 - Terminal resizes re-render the prompt, so path and branch truncation follow
   the new width.
+- Terminal integration under `[terminal]`, on by default: OSC 133 prompt and
+  command marks (`semantic_prompts`) for jumping between prompts and selecting
+  command output, and OSC 7 (`report_cwd`, sent after each command) so new
+  tabs and splits open in the current directory, even after a nested shell
+  reported its own. Terminals without support
+  ignore both.
 - The worker starts collecting async segments for the directory it was
   started in, so the first prompt after `.zshrc` usually arrives complete
   instead of filling in.

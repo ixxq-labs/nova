@@ -20,6 +20,7 @@ use crate::cache::{AsyncValue, CacheKey, SegmentCache};
 use crate::config::error::ConfigWarning;
 use crate::config::load::{ConfigSnapshot, ConfigSource};
 use crate::config::{Config, DEFAULT_INITIAL_WAIT_MS, DEFAULT_MIN_LOADING_MS, SegmentConfig};
+use crate::render::zsh::with_terminal_integration;
 use crate::render::{AsyncSegmentValues, LoweredPrompt, render_with_async};
 use crate::segments::{
     ASYNC_SEGMENTS, AsyncJobSegment, AsyncSegmentFailure, CollectContext, SegmentContent,
@@ -287,7 +288,7 @@ fn handle_request_chunk(
             load_worker_config(config_state, warned_config_error, warned_config_warnings);
         let config = worker_config.config;
         let async_values = async_values(cache, &request.state, &config, worker_config.generation);
-        let output = render_with_async(&config, &request.state, &async_values);
+        let output = render_for_shell(&config, &request.state, &async_values);
         let status = render_status(&config, &async_values);
         write_record(
             response,
@@ -433,7 +434,7 @@ fn write_update_if_active(
         &active_prompt.config,
         active_prompt.config_generation,
     );
-    let output = render_with_async(&active_prompt.config, &active_prompt.state, &async_values);
+    let output = render_for_shell(&active_prompt.config, &active_prompt.state, &async_values);
     let status = render_status(&active_prompt.config, &async_values);
     if output == active_prompt.output && status == active_prompt.status {
         return Ok(());
@@ -672,6 +673,19 @@ fn segment_min_loading_until(
     }
 
     now + segment_min_loading(config, config.segment(segment_id))
+}
+
+fn render_for_shell(
+    config: &Config,
+    state: &PromptState,
+    async_values: &AsyncSegmentValues,
+) -> LoweredPrompt {
+    with_terminal_integration(
+        render_with_async(config, state, async_values),
+        &config.terminal,
+        &state.cwd,
+        state.env.host.as_deref(),
+    )
 }
 
 fn write_record<W>(writer: &mut W, record: &WorkerRecord) -> Result<(), WorkerError>
@@ -1408,7 +1422,7 @@ mod tests {
             .expect("rust cache key should be available");
         let mut cache = SegmentCache::new(4);
         let initial_values = async_values(&mut cache, &state, &config, config_generation);
-        let output = render_with_async(&config, &state, &initial_values);
+        let output = render_for_shell(&config, &state, &initial_values);
         let status = render_status(&config, &initial_values);
         assert_eq!(status, RenderStatus::Partial);
 

@@ -301,13 +301,14 @@ pub fn decode_worker_record(record: &str) -> Result<WorkerRecord, ProtocolError>
             })
         }
         "P" | "U" => {
-            expect_field_count(record_type, fields.len(), 6)?;
+            expect_field_count(record_type, fields.len(), 7)?;
             let generation = parse_u64("gen", &fields[1])?;
             let status = parse_status(&fields[2])?;
             let output = LoweredPrompt {
                 prompt: fields[3].clone(),
                 rprompt: fields[4].clone(),
                 transient: fields[5].clone(),
+                cwd_report: fields[6].clone(),
             };
 
             if record_type == "P" {
@@ -341,6 +342,7 @@ fn encode_render_record(
         clean_field(&output.prompt),
         clean_field(&output.rprompt),
         clean_field(&output.transient),
+        clean_field(&output.cwd_report),
     ])
 }
 
@@ -521,6 +523,7 @@ mod tests {
                 prompt: "left\nright".to_string(),
                 rprompt: "duration".to_string(),
                 transient: "❯ ".to_string(),
+                cwd_report: "\x1b]7;file://host/tmp\x07".to_string(),
             },
         };
 

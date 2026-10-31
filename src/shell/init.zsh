@@ -52,6 +52,10 @@ typeset -g _nova_last_applied_gen=0
 typeset -g _nova_reply_applied=0
 typeset -g _nova_reply_status=
 typeset -g _nova_transient_prompt=
+typeset -g _nova_tty_fd=
+typeset -g _nova_cwd_report=
+typeset -g _nova_cwd_reported=
+typeset -g _nova_cwd_report_due=0
 typeset -g _nova_full_prompt=
 typeset -g _nova_full_rprompt=
 typeset -g _nova_transient_active=0
@@ -255,6 +259,7 @@ _nova_apply_record() {
       _nova_full_prompt=$PROMPT
       _nova_full_rprompt=$RPROMPT
       _nova_transient_prompt="${fields[6]}"
+      _nova_cwd_report="${fields[7]}"
       _nova_reply_applied=1
       ;;
   esac
@@ -265,11 +270,22 @@ _nova_fallback() {
   PROMPT='%~ %# '
   RPROMPT=''
   _nova_transient_prompt=
+  _nova_cwd_report=
   _nova_full_prompt=
   if (( _nova_failures >= 3 && ! _nova_warned_dead )); then
     print -ru2 -- 'nova: worker unavailable; using fallback prompt for this session'
     _nova_warned_dead=1
   fi
+}
+
+_nova_emit_cwd_report() {
+  [[ -n $_nova_cwd_report ]] || return 0
+  if (( _nova_cwd_report_due )) || [[ $_nova_cwd_report != "$_nova_cwd_reported" ]]; then
+    _nova_emit_mark "$_nova_cwd_report"
+    _nova_cwd_reported=$_nova_cwd_report
+    _nova_cwd_report_due=0
+  fi
+  return 0
 }
 
 _nova_on_update() {
@@ -286,6 +302,7 @@ _nova_drain_and_redraw() {
   }
   if (( _nova_reply_applied )); then
     zle reset-prompt 2>/dev/null || true
+    _nova_emit_cwd_report
   fi
 }
 
@@ -301,6 +318,8 @@ _nova_zle_line_init() {
   _nova_register_update_handler
   [[ -n ${_nova_resp_fd:-} ]] || return 0
   _nova_drain_and_redraw
+  # A failing zle hook would stop the hooks registered after this one.
+  return 0
 }
 
 _nova_zle_keymap_select() {
@@ -312,12 +331,13 @@ _nova_zle_keymap_select() {
   _nova_reply_status=
   _nova_send_request "$_nova_last_exit_status" "$_nova_last_duration_ms" || {
     _nova_mark_dead
-    return 1
+    return 0
   }
 
   if zselect -t 1 -r "$_nova_resp_fd" >/dev/null 2>&1; then
     _nova_drain_and_redraw
   fi
+  return 0
 }
 
 _nova_zle_line_finish() {
@@ -348,9 +368,31 @@ _nova_on_winch() {
   return 0
 }
 
+# OSC 133 command marks follow the prompt marks the worker rendered, so
+# turning `terminal.semantic_prompts` off needs no extra state here.
+_nova_marks_commands() {
+  [[ $PROMPT == *$'\e]133;A'* ]]
+}
+
+# Straight to the terminal, so redirected stdout (`exec >log`) captures no
+# integration bytes and the terminal still sees command boundaries.
+_nova_emit_mark() {
+  if [[ -z $_nova_tty_fd ]]; then
+    # Opened once and reused: an open per command shows up in command_lag.
+    [[ -n ${TTY:-} ]] && sysopen -w -o cloexec -u _nova_tty_fd -- "$TTY" 2>/dev/null || return 0
+  fi
+  print -nr -u $_nova_tty_fd -- "$1" 2>/dev/null
+  return 0
+}
+
 _nova_preexec() {
   emulate -L zsh
   _nova_cmd_start=${EPOCHREALTIME:-}
+  if _nova_marks_commands; then
+    _nova_emit_mark $'\e]133;C\a'
+  fi
+  # Keep hook status clean for other preexec hooks and status-checking tools.
+  return 0
 }
 
 _nova_precmd() {
@@ -366,6 +408,9 @@ _nova_precmd() {
   fi
   _nova_last_exit_status=$exit_status
   _nova_last_duration_ms=$duration_ms
+  if [[ -n ${_nova_cmd_start:-} ]] && _nova_marks_commands; then
+    _nova_emit_mark $'\e]133;D;'"$exit_status"$'\a'
+  fi
 
   _nova_ensure_worker || {
     _nova_fallback
@@ -413,7 +458,14 @@ _nova_precmd() {
     RPROMPT=''
     _nova_transient_prompt=
     _nova_full_prompt=
+    _nova_cwd_report=
   fi
+
+  # OSC 7 after every command, not only on cwd changes: a nested shell or ssh
+  # session may have reported its own directory meanwhile. A reply that arrives
+  # after this wait reports through _nova_drain_and_redraw instead.
+  [[ -n ${_nova_cmd_start:-} ]] && _nova_cwd_report_due=1
+  _nova_emit_cwd_report
 
   _nova_cmd_start=
 }

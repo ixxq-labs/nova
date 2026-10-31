@@ -2,13 +2,32 @@
 
 [日本語版](docs/README.ja.md)
 
-Nova is a fast, customizable zsh prompt renderer written in Rust.
+An async zsh prompt that never makes you wait. Written in Rust.
 
 ![Nova prompt demo](docs/assets/vhs/readme-prompt.gif)
 
-It keeps the prompt's blocking path small and collects slower data, such as Git
-status and runtime versions, through a per-shell worker process. zsh is the
-primary shell target.
+Nova draws the prompt from cheap, synchronous data and lets a per-shell worker
+fill in everything slow — Git status, runtime versions, your own commands —
+as it arrives. You can type the moment the prompt appears.
+
+## Highlights
+
+- **Never blocks.** `git status`, version probes, and custom commands run in a
+  worker with per-segment timeouts; the prompt redraws when results land.
+  Typical overhead is under 1 ms per prompt (`command_lag_ms` ≈ 0.75 ms).
+- **Fast startup.** Besides `nova init` and the worker itself, starting a shell
+  forks nothing, and the worker begins collecting for your directory while the
+  rest of `.zshrc` runs, so the first prompt usually arrives complete.
+- **Transient prompt.** Accepted lines collapse to `❯`, keeping scrollback
+  dense. Two-line layout with a right-aligned block that survives pane splits
+  and window resizes.
+- **Custom segments.** Turn any command into an async segment with a few lines
+  of TOML.
+- **Terminal integration.** OSC 133 prompt marks (jump between prompts in
+  Ghostty, WezTerm, kitty, iTerm2, and VS Code) and OSC 7 directory reports.
+- **Configurable without recompiling.** Layout, icons, colors, separators,
+  timeouts, and cache lifetimes live in one TOML file, checked by
+  `nova check`.
 
 ## Requirements
 
@@ -116,3 +135,48 @@ Preview the prompt without starting an interactive shell:
 ```sh
 nova prompt --format preview --cwd "$PWD" --cols "${COLUMNS:-80}" --duration-ms 2000 --time 11:16:42
 ```
+
+## Customize
+
+Every key is documented in [examples/config.toml](examples/config.toml). A few
+common recipes:
+
+Keep the full prompt in scrollback instead of collapsing it:
+
+```toml
+[layout]
+transient = []
+```
+
+Show the Kubernetes context, but only in directories that have manifests:
+
+```toml
+[layout.line1]
+left = ["dir", "git_branch", "git_status", "kube", "duration"]
+
+[segments.kube]
+command = "kubectl config current-context"
+detect = ["k8s", "Chart.yaml"]
+icon = "☸"
+style = { fg = "cyan", bold = true }
+ttl_ms = 5000
+```
+
+The command runs with `sh -c` in the prompt's directory, never blocks the
+prompt, and shows its first output line. Empty output or a failing exit status
+hides the segment.
+
+Turn off terminal integration sequences:
+
+```toml
+[terminal]
+semantic_prompts = false
+report_cwd = false
+```
+
+## Performance
+
+Nova is measured with [zsh-bench](https://github.com/romkatv/zsh-bench) on
+every pull request; see [docs/performance.md](docs/performance.md) for the
+method and history. Async work is bounded by per-segment `timeout_ms`, and a
+timed-out probe is stopped together with any processes it started.

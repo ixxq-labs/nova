@@ -289,7 +289,11 @@ mod tests {
     fn passes_worker_session_details_through_environment() {
         let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
 
-        assert!(script.contains("NOVA_SESSION_TOKEN=\"$_nova_session_token\" NOVA_PARENT_PID=$$"));
+        assert!(
+            script.contains(
+                "NOVA_SESSION_TOKEN=\"$_nova_session_token\" NOVA_PARENT_PID=$$ PWD=$PWD"
+            )
+        );
         assert!(script.contains("\"$_nova_bin\" worker --dir \"$_nova_runtime_dir\""));
         assert!(!script.contains("--session-token \"$_nova_session_token\""));
     }

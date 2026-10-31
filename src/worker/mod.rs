@@ -25,7 +25,7 @@ use crate::segments::{
     ASYNC_SEGMENTS, AsyncJobSegment, AsyncSegmentFailure, CollectContext, SegmentContent,
     known_segment_ids,
 };
-use crate::state::PromptState;
+use crate::state::{Keymap, PromptEnv, PromptState};
 use jobs::{JobOutcome, JobPool, JobResult};
 use protocol::{
     ClientRecord, FrameDecoder, RenderStatus, WorkerRecord, decode_client_record,
@@ -33,7 +33,6 @@ use protocol::{
 };
 
 const CACHE_CAPACITY: usize = 128;
-const MAX_CONCURRENCY: usize = 2;
 const PARENT_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
@@ -67,6 +66,37 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
     let _runtime_cleanup = RuntimeDirCleanup::new(options.runtime_dir.clone());
     spawn_parent_monitor(options.parent_pid, options.runtime_dir.clone());
 
+    let mut config_state = ConfigState::default();
+    let mut warned_config_error = false;
+    let mut warned_config_warnings = BTreeSet::new();
+    let worker_config = load_worker_config(
+        &mut config_state,
+        &mut warned_config_error,
+        &mut warned_config_warnings,
+    );
+
+    let (events, event_receiver) = mpsc::channel::<WorkerEvent>();
+    let mut decoder = FrameDecoder::default();
+    let mut cache = SegmentCache::new(CACHE_CAPACITY);
+    // One slot per async segment kind, so a slow probe (e.g. git on a network
+    // filesystem) never queues the others behind it; still bounded.
+    let job_pool = JobPool::new(ASYNC_SEGMENTS.len(), events.clone());
+    let mut active_prompt = None;
+
+    // zsh only connects on its first precmd, after the rest of .zshrc. Collect
+    // for the inherited cwd before blocking on the FIFOs so the first prompt can
+    // arrive already complete; results wait in the event channel.
+    if let Some(state) = prefetch_state() {
+        schedule_async_refreshes(
+            &job_pool,
+            &mut cache,
+            0,
+            state,
+            Arc::clone(&worker_config.config),
+            worker_config.generation,
+        );
+    }
+
     let request_path = options.runtime_dir.join("req");
     let response_path = options.runtime_dir.join("resp");
     let request = OpenOptions::new()
@@ -83,15 +113,6 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
             path: response_path,
             source,
         })?;
-
-    let mut config_state = ConfigState::default();
-    let mut warned_config_error = false;
-    let mut warned_config_warnings = BTreeSet::new();
-    let worker_config = load_worker_config(
-        &mut config_state,
-        &mut warned_config_error,
-        &mut warned_config_warnings,
-    );
     write_record(
         &mut response,
         &WorkerRecord::Handshake {
@@ -99,14 +120,7 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
             initial_wait_ms: initial_wait_ms(&worker_config.config),
         },
     )?;
-
-    let (events, event_receiver) = mpsc::channel::<WorkerEvent>();
     spawn_request_reader(request, events.clone());
-
-    let mut decoder = FrameDecoder::default();
-    let mut cache = SegmentCache::new(CACHE_CAPACITY);
-    let job_pool = JobPool::new(MAX_CONCURRENCY, events.clone());
-    let mut active_prompt = None;
 
     loop {
         match event_receiver.recv() {
@@ -136,6 +150,26 @@ pub fn run(options: WorkerOptions) -> Result<(), WorkerError> {
             Ok(WorkerEvent::ReadError(error)) => return Err(WorkerError::Read(error)),
         }
     }
+}
+
+/// Mirrors the state of the shell that spawned the worker. zsh sends its
+/// logical `$PWD`, so prefer the inherited `PWD` over the physical cwd to hit
+/// the same cache keys.
+fn prefetch_state() -> Option<PromptState> {
+    let cwd = std::env::var_os("PWD")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute() && path.is_dir())
+        .or_else(|| std::env::current_dir().ok())?;
+
+    Some(PromptState {
+        cwd,
+        exit_status: 0,
+        duration_ms: None,
+        time: None,
+        columns: 80,
+        keymap: Keymap::Main,
+        env: PromptEnv::from_current_process(),
+    })
 }
 
 #[derive(Debug)]

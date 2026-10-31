@@ -47,7 +47,10 @@ fn spawn_worker(runtime_dir: &Path, session_token: &str, config: WorkerConfig<'_
         .env("NOVA_SESSION_TOKEN", session_token)
         .env("NOVA_PARENT_PID", std::process::id().to_string())
         .env("XDG_CONFIG_HOME", &config_home)
-        .env("HOME", &home);
+        .env("HOME", &home)
+        // Start outside any repository so startup prefetch stays out of the way.
+        .current_dir(&home)
+        .env("PWD", &home);
 
     match config {
         WorkerConfig::IsolatedDefault => {
@@ -1768,4 +1771,99 @@ fn assert_worker_exits(child: &mut std::process::Child) {
         child.kill().expect("worker should be killed");
         panic!("worker did not exit after request FIFO closed");
     }
+}
+
+#[test]
+fn worker_prefetches_async_segments_for_its_startup_directory() {
+    let _guard = worker_test_lock();
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let runtime_dir = tempdir.path().join("runtime");
+    fs::create_dir(&runtime_dir).expect("runtime dir should be created");
+    create_fifo(runtime_dir.join("req"));
+    create_fifo(runtime_dir.join("resp"));
+
+    let repo = tempdir.path().join("repo");
+    fs::create_dir(&repo).expect("repo dir should be created");
+    fs::create_dir(repo.join(".git")).expect("git marker should be created");
+
+    let config_path = tempdir.path().join("nova.toml");
+    fs::write(
+        &config_path,
+        r#"
+        [layout]
+        lines = 1
+
+        [layout.line1]
+        left = ["dir", "git_branch", "git_status", "prompt_char"]
+        right = []
+
+        [segments.git_status]
+        show_counts = true
+        ttl_ms = 60000
+        "#,
+    )
+    .expect("config should be written");
+
+    let bin_dir = tempdir.path().join("bin");
+    fs::create_dir(&bin_dir).expect("bin dir should be created");
+    let count_path = tempdir.path().join("git-status-count");
+    write_script(
+        &bin_dir,
+        "git",
+        &format!(
+            r#"
+case "$*" in
+  *"symbolic-ref"*)
+    printf 'main\n'
+    exit 0
+    ;;
+esac
+printf x >> '{}'
+printf '%s\0%s\0%s\0' '# branch.oid abcdef0123456789' '# branch.head main' '1 A. staged.txt'
+"#,
+            count_path.display()
+        ),
+    );
+    let path = format!(
+        "{}:{}",
+        bin_dir.to_string_lossy(),
+        env::var("PATH").unwrap_or_default()
+    );
+
+    let mut child = spawn_worker(&runtime_dir, "test-token", WorkerConfig::File(&config_path))
+        .env("PATH", path)
+        .current_dir(&repo)
+        .env("PWD", &repo)
+        .spawn()
+        .expect("worker should spawn");
+
+    // Like zsh, connect only later: the prefetch must not wait for the FIFOs.
+    wait_until(Duration::from_secs(2), || count_path.exists());
+
+    let mut request = open_fifo_write(runtime_dir.join("req"));
+    let mut response = WorkerReader::new(open_fifo_read(runtime_dir.join("resp")));
+    assert!(matches!(
+        read_worker_record(&mut response),
+        WorkerRecord::Handshake { .. }
+    ));
+    // Let the default loading floor pass so the result lands in the cache.
+    thread::sleep(Duration::from_millis(300));
+
+    write_render_request(&mut request, 1, repo, 160);
+    let (status, output) = read_prompt_response(&mut response, 1);
+    assert_eq!(status, RenderStatus::Final);
+    assert!(
+        output.prompt.contains("main") && output.prompt.contains("[+1]"),
+        "first prompt should already include prefetched git data: {}",
+        output.prompt
+    );
+    assert_eq!(
+        fs::read_to_string(&count_path).expect("count"),
+        "x",
+        "the first request should reuse the prefetched status"
+    );
+
+    drop(request);
+    drop(response);
+    assert_worker_exits(&mut child);
 }

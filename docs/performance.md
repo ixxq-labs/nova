@@ -277,3 +277,41 @@ The preview script writes the repository dashboard template and the latest
 `origin/gh-pages:bench/zsh/data.js` into `.preview/zsh-bench-dashboard`, then
 prints the local `file://` URL to open in a browser. The `.preview` directory is
 ignored by git.
+
+### 2026-10-31: 0.4.0 Release Checkpoint
+
+Environment:
+
+- Machine: Apple Silicon `arm64` (local M4 workstation), macOS
+- Shell benchmark: `zsh-bench` via `scripts/bench-zsh` (empty `.zshrc`,
+  empty git repository)
+- Binaries: `main` at `cfcd1ce` (0.3.1) and the 0.4.0 release branch, both
+  `cargo build --release`, run alternately in the same session
+
+Command:
+
+```sh
+NOVA_BENCH_BIN=<binary> NOVA_ZSH_BENCH_ITERS=8 scripts/bench-zsh
+```
+
+Medians of two alternating rounds of 8 iterations:
+
+| build | `first_prompt_lag_ms` | `command_lag_ms` | `input_lag_ms` |
+| ----- | --------------------: | ---------------: | -------------: |
+| 0.3.1 |           52.4 / 52.1 |      0.75 / 0.75 |    0.43 / 0.48 |
+| 0.4.0 |           36.8 / 36.4 |      0.93 / 0.94 |    0.58 / 0.52 |
+
+Interpretation:
+
+- `first_prompt_lag_ms` drops by about 16 ms: `nova init zsh` prepares the
+  runtime directory, so startup no longer forks `rm`, `mkdir`, and `mkfifo`.
+  The bench's empty `.zshrc` hides the startup prefetch, which pays off when
+  the rest of `.zshrc` runs before the first prompt.
+- Terminal integration accounts for most of the `command_lag_ms` change
+  (about 0.16 ms against `[terminal]` disabled). The OSC 7 report is written
+  once per command from `precmd`, never on redraws, because a nested shell or
+  ssh session may have overwritten it; the OSC 133 marks reuse a cached
+  `$TTY` fd. The transient prompt costs no measurable time, and the capsule
+  style is off by default. Every interactive field stays well inside green.
+- All fields remain green except `first_prompt_lag_ms`, which includes bare
+  zsh startup (about 24 ms on this machine, measured earlier the same day).

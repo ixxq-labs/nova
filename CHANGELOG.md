@@ -6,6 +6,8 @@ All notable user-facing changes are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-31
+
 ### Added
 
 - Custom command segments: any `[segments.<id>]` with `command` becomes an
@@ -33,9 +35,9 @@ All notable user-facing changes are documented here. The format follows
   move instead of space padding. It stays right-aligned after a pane split or
   window shrink and, like `RPROMPT`, leaves the last column empty.
 - Startup no longer forks `rm`, `mkdir`, and `mkfifo`: `nova init zsh`
-  prepares the runtime directory (`nova-<pid>-<random>`) itself, and exit
-  cleanup uses the `zsh/files` builtins. This removes about 15 ms from the
-  first prompt on macOS.
+  prepares the runtime directory and FIFOs itself, the shell claims it with an
+  atomic `zf_mv` rename, and exit cleanup uses the `zsh/files` builtins. This
+  removes about 15 ms from the first prompt on macOS.
 - The worker checks the shell's liveness with `kill(2)` instead of forking
   `kill -0` every second.
 - Async collectors run with one slot per segment kind, so a slow `git status`
@@ -104,7 +106,8 @@ All notable user-facing changes are documented here. The format follows
   `ssh`, `user_host`, `prompt_char`, `nix_shell`, `aws`, and Rust, Node, Bun,
   Deno, and Python version segments.
 
-[Unreleased]: https://github.com/ixxq-labs/nova/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ixxq-labs/nova/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ixxq-labs/nova/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/ixxq-labs/nova/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ixxq-labs/nova/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ixxq-labs/nova/compare/v0.1.1...v0.2.0

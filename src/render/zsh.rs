@@ -80,6 +80,61 @@ pub fn lower_segment(segment: &SegmentContent) -> String {
     lower_text(&text, &segment.style)
 }
 
+/// Columns a capsule adds around a segment: two caps and one space of padding
+/// on each side.
+pub const CAPSULE_DECORATION_WIDTH: usize = 4;
+const CAPSULE_LEFT: &str = "\u{e0b6}";
+const CAPSULE_RIGHT: &str = "\u{e0b4}";
+
+/// Draws a segment as a rounded pill. The pill takes the segment's `bg`
+/// (`default_bg` when unset); each part keeps its own colors on top of it.
+pub fn lower_capsule(segment: &SegmentContent, default_bg: &str) -> String {
+    let parts = if segment.uses_parts() {
+        segment.parts.clone()
+    } else {
+        vec![SegmentPart {
+            text: segment.text.clone(),
+            style: segment.style.clone(),
+        }]
+    };
+    // A part without its own bg (e.g. a duration prefix) must not turn the pill gray.
+    let bg = parts
+        .iter()
+        .find_map(|part| part.style.bg.clone())
+        .or_else(|| segment.style.bg.clone())
+        .unwrap_or_else(|| default_bg.to_string());
+    let cap = Style {
+        fg: Some(bg.clone()),
+        bg: None,
+        bold: false,
+    };
+    let padding = Style {
+        fg: None,
+        bg: Some(bg.clone()),
+        bold: false,
+    };
+    let body = parts
+        .iter()
+        .map(|part| {
+            lower_text(
+                &escape_prompt_text(&part.text),
+                &Style {
+                    bg: part.style.bg.clone().or_else(|| Some(bg.clone())),
+                    ..part.style.clone()
+                },
+            )
+        })
+        .collect::<String>();
+
+    format!(
+        "{}{}{body}{}{}",
+        lower_text(CAPSULE_LEFT, &cap),
+        lower_text(" ", &padding),
+        lower_text(" ", &padding),
+        lower_text(CAPSULE_RIGHT, &cap)
+    )
+}
+
 fn lower_part(part: &SegmentPart) -> String {
     let text = escape_prompt_text(&part.text);
     lower_text(&text, &part.style)
@@ -289,6 +344,32 @@ mod tests {
         );
         assert_eq!(output.cwd_report, "\x1b]7;file:///tmp\x07");
         assert!(!output.prompt.contains("]7;"), "OSC 7 stays out of PROMPT");
+    }
+
+    #[test]
+    fn capsule_takes_its_color_from_any_part_with_a_background() {
+        let segment = SegmentContent::from_parts(
+            "duration",
+            vec![
+                SegmentPart::new("+", Style::default()),
+                SegmentPart::new(
+                    "2s",
+                    Style {
+                        bg: Some("blue".to_string()),
+                        ..Style::default()
+                    },
+                ),
+            ],
+        );
+
+        let lowered = lower_capsule(&segment, "238");
+
+        assert!(lowered.starts_with("%{\x1b[34m%}\u{e0b6}"), "{lowered:?}");
+        assert!(
+            lowered.contains("%{\x1b[44m%}+"),
+            "the prefix sits on the pill: {lowered:?}"
+        );
+        assert!(!lowered.contains("238"));
     }
 
     #[test]

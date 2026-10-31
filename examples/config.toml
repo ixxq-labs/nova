@@ -49,6 +49,9 @@ report_cwd = true
 lines = 2
 # Optional separator inserted between rendered segments. Defaults to " ".
 # separator = " "
+# Segment style: "plain" (default) or "capsule", which draws each segment on a
+# rounded Nerd Font pill. Pills use the segment's style.bg, or a neutral gray.
+# style = "capsule"
 # Segments left in scrollback after a command is accepted (transient prompt).
 # The full prompt is only kept for the line being edited. Set to [] to disable.
 transient = ["prompt_char"]

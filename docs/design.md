@@ -399,6 +399,10 @@ only assigns them.
 
   This is the single most error-prone rendering feature; it gets dedicated
   snapshot and property tests.
+- **Capsule style**: `layout.style = "capsule"` lowers every segment except
+  `prompt_char` as cap, padded body, cap. The joiner passed through fitting
+  adds those 4 columns to each decorated segment's width, so the existing
+  truncation priorities work unchanged.
 - **Width**: computed in Rust from unstyled text using `unicode-width`.
   Nerd Font private-use glyphs are treated as width 1 by default, with a
   per-icon override in config for terminals that disagree.

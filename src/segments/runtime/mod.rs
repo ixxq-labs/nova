@@ -2,6 +2,7 @@
 
 mod aws;
 mod bun;
+mod command;
 mod deno;
 mod detect;
 mod nix_shell;
@@ -13,6 +14,10 @@ pub use aws::{AwsSegment, render_aws};
 pub use bun::{
     BunSegment, bun_cache_key, collect_bun_version, is_bun_project_dir, parse_bun_version,
     render_bun_version,
+};
+pub use command::{
+    COMMAND_SEGMENT_TIMEOUT, COMMAND_SEGMENT_TTL, collect_command_segment, command_cache_key,
+    command_segment_ids,
 };
 pub use deno::{
     DenoSegment, collect_deno_version, deno_cache_key, is_deno_project_dir, parse_deno_version,
@@ -35,11 +40,15 @@ pub use rust::{
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
+use nix::sys::signal::{Signal, killpg};
+use nix::unistd::Pid;
 use thiserror::Error;
 use wait_timeout::ChildExt;
 
@@ -113,6 +122,10 @@ fn collect_command_output(
     path: Option<&str>,
 ) -> Result<Vec<u8>, RuntimeCollectError> {
     let mut command = runtime_command(command, path);
+    let deadline = Instant::now() + timeout;
+    // Own process group, so a timeout also stops grandchildren (`a; b`, pipes) that
+    // would otherwise keep stdout open and hold the job past its deadline.
+    command.process_group(0);
     let mut child = command
         .args(args)
         .current_dir(cwd)
@@ -132,13 +145,16 @@ fn collect_command_output(
     {
         Some(status) => status,
         None => {
+            kill_process_group(&child);
             let _ = child.kill();
             let _ = child.wait();
-            let _ = stdout_reader.join();
+            // The reader thread ends on its own once the pipe closes.
             return Err(RuntimeCollectError::TimedOut);
         }
     };
-    let output = join_stdout(stdout_reader)?;
+    let output = join_stdout(&stdout_reader, deadline).inspect_err(|_error| {
+        kill_process_group(&child);
+    })?;
 
     if !status.success() {
         return Ok(Vec::new());
@@ -185,6 +201,12 @@ fn runtime_command(command: &Path, path: Option<&str>) -> Command {
     command
 }
 
+fn kill_process_group(child: &std::process::Child) {
+    if let Ok(pid) = i32::try_from(child.id()) {
+        let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
+    }
+}
+
 fn request_path(path: Option<&str>) -> Option<&str> {
     path.filter(|value| !value.is_empty())
 }
@@ -201,21 +223,30 @@ fn remaining_time(deadline: Instant) -> Result<Duration, RuntimeCollectError> {
     }
 }
 
-fn read_stdout(mut stdout: std::process::ChildStdout) -> JoinHandle<std::io::Result<Vec<u8>>> {
+type StdoutReader = mpsc::Receiver<std::io::Result<Vec<u8>>>;
+
+fn read_stdout(mut stdout: std::process::ChildStdout) -> StdoutReader {
+    let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let mut output = Vec::new();
-        stdout.read_to_end(&mut output)?;
-        Ok(output)
-    })
+        let result = stdout.read_to_end(&mut output).map(|_bytes| output);
+        let _ = sender.send(result);
+    });
+    receiver
 }
 
+/// Waits for stdout to close, but never past `deadline`: a descendant that left
+/// the process group (or was backgrounded with `&`) can hold it open for long.
 fn join_stdout(
-    stdout_reader: JoinHandle<std::io::Result<Vec<u8>>>,
+    stdout_reader: &StdoutReader,
+    deadline: Instant,
 ) -> Result<Vec<u8>, RuntimeCollectError> {
-    stdout_reader
-        .join()
-        .map_err(|_panic| RuntimeCollectError::ReaderPanicked)?
-        .map_err(RuntimeCollectError::ReadOutput)
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    match stdout_reader.recv_timeout(remaining) {
+        Ok(result) => result.map_err(RuntimeCollectError::ReadOutput),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(RuntimeCollectError::TimedOut),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(RuntimeCollectError::ReaderPanicked),
+    }
 }
 
 #[cfg(unix)]

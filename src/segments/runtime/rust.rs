@@ -274,6 +274,9 @@ mod tests {
             &rustc,
         );
 
-        assert!(matches!(result, Err(RuntimeCollectError::TimedOut)));
+        assert!(
+            matches!(result, Err(RuntimeCollectError::TimedOut)),
+            "expected a timeout, got {result:?}"
+        );
     }
 }

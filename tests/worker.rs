@@ -1867,3 +1867,66 @@ printf '%s\0%s\0%s\0' '# branch.oid abcdef0123456789' '# branch.head main' '1 A.
     drop(response);
     assert_worker_exits(&mut child);
 }
+
+#[test]
+fn worker_renders_user_command_segments_asynchronously() {
+    let _guard = worker_test_lock();
+    let tempdir = tempfile::tempdir().expect("tempdir should be created");
+    let runtime_dir = tempdir.path().join("runtime");
+    fs::create_dir(&runtime_dir).expect("runtime dir should be created");
+    create_fifo(runtime_dir.join("req"));
+    create_fifo(runtime_dir.join("resp"));
+    let project = tempdir.path().join("project");
+    fs::create_dir(&project).expect("project dir should be created");
+
+    let config_path = tempdir.path().join("nova.toml");
+    fs::write(
+        &config_path,
+        r#"
+        [async]
+        min_loading_ms = 0
+
+        [layout]
+        lines = 1
+
+        [layout.line1]
+        left = ["dir", "kube", "prompt_char"]
+        right = []
+
+        [segments.kube]
+        # Slow enough that a blocking render would be visible.
+        command = "sleep 0.3; echo prod-cluster"
+        icon = "K"
+        "#,
+    )
+    .expect("config should be written");
+
+    let mut child = spawn_worker(&runtime_dir, "test-token", WorkerConfig::File(&config_path))
+        .spawn()
+        .expect("worker should spawn");
+    let mut request = open_fifo_write(runtime_dir.join("req"));
+    let mut response = WorkerReader::new(open_fifo_read(runtime_dir.join("resp")));
+    assert!(matches!(
+        read_worker_record(&mut response),
+        WorkerRecord::Handshake { .. }
+    ));
+
+    let started = Instant::now();
+    write_render_request(&mut request, 1, project, 120);
+    let (status, output) = read_prompt_response(&mut response, 1);
+    assert!(
+        started.elapsed() < Duration::from_millis(250),
+        "the prompt must not wait for the command"
+    );
+    assert_eq!(status, RenderStatus::Partial);
+    assert!(!output.prompt.contains("prod-cluster"));
+
+    let update = read_update_output_until(&mut response, 1, "command segment", |output| {
+        output.prompt.contains("K prod-cluster")
+    });
+    assert!(update.prompt.contains("K prod-cluster"));
+
+    drop(request);
+    drop(response);
+    assert_worker_exits(&mut child);
+}

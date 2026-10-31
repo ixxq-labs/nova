@@ -8,6 +8,9 @@ All notable user-facing changes are documented here. The format follows
 
 ### Added
 
+- Custom command segments: any `[segments.<id>]` with `command` becomes an
+  async segment showing the command's first output line, with optional
+  `detect` markers, `icon`, `style`, `ttl_ms`, and `timeout_ms`.
 - Transient prompt: accepted and interrupted (`Ctrl-C`) lines collapse to
   `layout.transient`, which defaults to `["prompt_char"]`. Set
   `transient = []` under `[layout]` to keep the full prompt in scrollback.
@@ -42,6 +45,8 @@ All notable user-facing changes are documented here. The format follows
 
 ### Fixed
 
+- Timed-out runtime and command probes also stop the processes they started,
+  instead of holding a collector until those exit.
 - Worker records with an empty `RPROMPT` no longer shift the fields that
   follow it.
 

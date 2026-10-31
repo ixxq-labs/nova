@@ -182,7 +182,7 @@ pub fn render_sync_segment(
         .and_then(|segment| segment.render(state, config))
 }
 
-fn strip_control_chars(input: &str) -> String {
+pub(crate) fn strip_control_chars(input: &str) -> String {
     input
         .chars()
         .filter(|character| !character.is_control())

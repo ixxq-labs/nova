@@ -419,14 +419,20 @@ fn join_stdout(
 
 pub fn parse_porcelain_v2_z(output: &[u8]) -> GitStatus {
     let mut status = GitStatus::default();
+    let mut records = output.split(|byte| *byte == b'\0');
 
-    for record in output.split(|byte| *byte == b'\0') {
+    while let Some(record) = records.next() {
         if record.is_empty() {
             continue;
         }
 
         let record = String::from_utf8_lossy(record);
         parse_record(&record, &mut status);
+        // Under -z, a rename or copy entry is followed by its origin path as a
+        // separate record, which must not be parsed as an entry.
+        if record.starts_with("2 ") {
+            records.next();
+        }
     }
 
     status
@@ -924,6 +930,26 @@ mod tests {
         assert_eq!(status.modified, 1);
         assert_eq!(status.untracked, 1);
         assert_eq!(status.conflicted, 0);
+    }
+
+    #[test]
+    fn does_not_count_rename_origin_paths_as_entries() {
+        for origin in ["? note.txt", "1 M. weird", "u UU odd"] {
+            let output = format!(
+                "# branch.head main\02 R. N... 100644 100644 100644 abc def R100 renamed.txt\0{origin}\0"
+            );
+
+            let status = parse_porcelain_v2_z(output.as_bytes());
+
+            assert_eq!(
+                status,
+                GitStatus {
+                    staged: 1,
+                    ..GitStatus::default()
+                },
+                "origin path {origin:?} was counted"
+            );
+        }
     }
 
     #[test]

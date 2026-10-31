@@ -7,7 +7,9 @@ use std::collections::BTreeMap;
 
 use crate::cache::AsyncValue;
 use crate::config::{Config, LineConfig, SegmentConfig};
-use crate::segments::{SegmentContent, SegmentPart, Style, render_sync_segment};
+use crate::segments::{
+    SegmentContent, SegmentPart, Style, render_sync_segment, strip_control_chars,
+};
 use crate::state::PromptState;
 
 pub type AsyncSegmentValues = BTreeMap<String, AsyncValue>;
@@ -48,13 +50,14 @@ fn render_lowered(
     state: &PromptState,
     async_values: Option<&AsyncSegmentValues>,
 ) -> LoweredPrompt {
-    let separator = config.layout.separator();
+    // Control characters would corrupt the display and the worker protocol.
+    let separator = strip_control_chars(config.layout.separator());
     LoweredPrompt {
-        transient: render_transient(config, state, async_values, separator),
+        transient: render_transient(config, state, async_values, &separator),
         ..lower_with_separator(
             render_structured_inner(config, state, async_values),
             state.columns,
-            separator,
+            &separator,
         )
     }
 }
@@ -1048,6 +1051,19 @@ mod tests {
                 ..PromptEnv::default()
             },
         }
+    }
+
+    #[test]
+    fn control_characters_in_the_separator_never_reach_the_prompt() {
+        let config = Config::from_toml(
+            "[layout]\nlines = 1\nseparator = \" \\u001e|\\u0000 \"\n[layout.line1]\nleft = [\"time\", \"prompt_char\"]\n",
+        )
+        .expect("toml");
+
+        let output = render(&config, &transient_state(0));
+
+        assert_eq!(output.prompt, "11:16:42 | ❯ ");
+        assert!(!output.prompt.chars().any(char::is_control));
     }
 
     #[test]

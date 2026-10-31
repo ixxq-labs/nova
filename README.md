@@ -18,9 +18,9 @@ as it arrives. You can type the moment the prompt appears.
 - **Fast startup.** Besides `nova init` and the worker itself, starting a shell
   forks nothing, and the worker begins collecting for your directory while the
   rest of `.zshrc` runs, so the first prompt usually arrives complete.
-- **Transient prompt.** Accepted lines collapse to `❯`, keeping scrollback
-  dense. Two-line layout with a right-aligned block that survives pane splits
-  and window resizes.
+- **Optional transient prompt.** Accepted lines can collapse to a few segments,
+  such as the directory and `❯`, keeping scrollback dense. Two-line layout with
+  a right-aligned block that survives pane splits and window resizes.
 - **Custom segments.** Turn any command into an async segment with a few lines
   of TOML.
 - **Terminal integration.** OSC 133 prompt marks (jump between prompts in
@@ -141,11 +141,11 @@ nova prompt --format preview --cwd "$PWD" --cols "${COLUMNS:-80}" --duration-ms 
 Every key is documented in [examples/config.toml](examples/config.toml). A few
 common recipes:
 
-Keep the full prompt in scrollback instead of collapsing it:
+Collapse accepted lines to the directory and prompt character:
 
 ```toml
 [layout]
-transient = []
+transient = ["dir", "prompt_char"]
 ```
 
 Show the Kubernetes context, but only in directories that have manifests:

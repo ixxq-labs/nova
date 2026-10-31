@@ -393,7 +393,7 @@ only assigns them.
   displayed prompt carries the `A` mark, so `[terminal]` stays the single
   switch.
 - **Transient prompt**: every render also lowers `layout.transient`
-  (default `["prompt_char"]`, empty disables it). A `zle-line-finish` hook
+  (default `[]`, which disables it). A `zle-line-finish` hook
   swaps it into `PROMPT` and clears `RPROMPT`, so scrollback keeps one compact
   line per command and the swap costs no IPC.
 

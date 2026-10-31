@@ -207,9 +207,8 @@ wait_for_output "$main_marker" 'the first Nova prompt'
 print -r -- 'ok 1 - first prompt renders without fallback'
 
 checkpoint_output
-# Nothing may follow the eval on the same line: the load guard returns early.
-zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"'
-zpty -w nova_e2e 'print -r -- "RELOADED_${:-OK}"'
+# Commands after the eval must still run, as the rest of a re-sourced .zshrc does.
+zpty -w nova_e2e 'eval "$("$NOVA_E2E_BIN" init zsh)"; print -r -- "RELOADED_${:-OK}"'
 wait_for_output 'RELOADED_OK' 'the re-sourced init script'
 # The next prompt may already be in the transcript, so submit a fresh line to
 # wait on instead of racing for the one after RELOADED_OK.

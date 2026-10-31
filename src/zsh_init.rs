@@ -177,13 +177,26 @@ mod tests {
     }
 
     #[test]
+    fn loads_through_an_if_else_so_a_re_sourced_init_never_returns_early() {
+        let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
+        let guard = script
+            .split_once("\nelse\n  typeset -g _NOVA_ZSH_LOADED=1\n")
+            .map(|(guard, _body)| guard)
+            .expect("the loaded and first-load branches should be one if/else");
+
+        // `return` would end the eval and skip the rest of a re-sourced .zshrc.
+        assert!(!guard.lines().any(|line| line.trim() == "return"));
+        assert!(script.ends_with("  fi\nfi\n"));
+    }
+
+    #[test]
     fn eagerly_spawns_worker_once_for_interactive_shells() {
         let script = render_init_script_with_session_token(Path::new("/tmp/nova"), "token");
 
         assert!(script.contains("_nova_worker_alive && return 0"));
         assert!(script.contains("if ! _nova_worker_alive; then"));
         assert!(script.contains(
-            "if [[ -o interactive ]]; then\n  _nova_spawn_worker || true\nelse\n  _nova_remove_runtime\nfi\n\nadd-zsh-hook"
+            "  if [[ -o interactive ]]; then\n    _nova_spawn_worker || true\n  else\n    _nova_remove_runtime\n  fi\n\n  add-zsh-hook"
         ));
     }
 

@@ -45,6 +45,8 @@ All notable user-facing changes are documented here. The format follows
 
 ### Fixed
 
+- Re-sourcing `.zshrc` no longer skips everything after `eval "$(nova init zsh)"`:
+  the load guard returned from the `eval`, which ended the sourced file.
 - Timed-out runtime and command probes also stop the processes they started,
   instead of holding a collector until those exit.
 - Worker records with an empty `RPROMPT` no longer shift the fields that

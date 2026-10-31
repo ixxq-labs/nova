@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793439543656,
+  "lastUpdate": 1793439600497,
   "repoUrl": "https://github.com/ixxq-labs/nova",
   "entries": {
     "Zsh Interactive Latency": [
@@ -1829,6 +1829,65 @@ window.BENCHMARK_DATA = {
             "range": "0.21 ms",
             "unit": "ms",
             "extra": "median: 12.16 ms\nmin: 11.71 ms\nmax: 12.47 ms\nstddev: 0.21 ms\nruns: 16"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "83203852+ixxq@users.noreply.github.com",
+            "name": "k.suzuki",
+            "username": "ixxq"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4acb75dd0b7ebcfb7c7325c6c7bd622e8f5381d7",
+          "message": "docs: keep the exit status in the suggested transient prompt (#75)\n\nThe suggested `layout.transient` now includes `exit_status`, so `[127]`\nstays in scrollback, and the docs note that it lands on the line after\nthe failure, as in the full prompt. The README GIF is re-recorded with it.\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-10-31T18:27:57+09:00",
+          "tree_id": "2da91c253b93517741a4f7d73426a1cbe0b70cc3",
+          "url": "https://github.com/ixxq-labs/nova/commit/4acb75dd0b7ebcfb7c7325c6c7bd622e8f5381d7"
+        },
+        "date": 1793439599467,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "first prompt lag",
+            "value": 25.42,
+            "range": "4.18 ms",
+            "unit": "ms",
+            "extra": "median: 25.42 ms\nmin: 24.47 ms\nmax: 42.4 ms\nstddev: 4.18 ms\nruns: 16"
+          },
+          {
+            "name": "first command lag",
+            "value": 25.62,
+            "range": "4.2 ms",
+            "unit": "ms",
+            "extra": "median: 25.62 ms\nmin: 24.67 ms\nmax: 42.69 ms\nstddev: 4.2 ms\nruns: 16"
+          },
+          {
+            "name": "command lag",
+            "value": 0.71,
+            "range": "0.04 ms",
+            "unit": "ms",
+            "extra": "median: 0.71 ms\nmin: 0.57 ms\nmax: 0.74 ms\nstddev: 0.04 ms\nruns: 16"
+          },
+          {
+            "name": "input lag",
+            "value": 0.74,
+            "range": "0.1 ms",
+            "unit": "ms",
+            "extra": "median: 0.74 ms\nmin: 0.4 ms\nmax: 0.83 ms\nstddev: 0.1 ms\nruns: 16"
+          },
+          {
+            "name": "exit time",
+            "value": 12.31,
+            "range": "0.22 ms",
+            "unit": "ms",
+            "extra": "median: 12.31 ms\nmin: 12.15 ms\nmax: 13.01 ms\nstddev: 0.22 ms\nruns: 16"
           }
         ]
       }

@@ -12,6 +12,7 @@ keywords = ["zsh", "prompt", "shell", "terminal", "async"]
 categories = ["command-line-utilities"]
 
 [dependencies]
+nix = { version = "0.31.3", default-features = false, features = ["fs", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_ignored = "0.1"
 thiserror = "2"

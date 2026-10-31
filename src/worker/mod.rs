@@ -7,11 +7,13 @@ use std::collections::BTreeSet;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use nix::errno::Errno;
+use nix::sys::signal::kill;
+use nix::unistd::Pid;
 use thiserror::Error;
 
 use crate::cache::{AsyncValue, CacheKey, SegmentCache};
@@ -170,22 +172,12 @@ fn spawn_parent_monitor(parent_pid: Option<u32>, runtime_dir: PathBuf) {
 }
 
 fn parent_is_alive(parent_pid: u32) -> bool {
-    for command in ["/bin/kill", "/usr/bin/kill", "kill"] {
-        match Command::new(command)
-            .arg("-0")
-            .arg(parent_pid.to_string())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-        {
-            Ok(status) => return status.success(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => return true,
-        }
-    }
+    let Ok(pid) = i32::try_from(parent_pid) else {
+        return true;
+    };
 
-    true
+    // EPERM still means the process exists; only ESRCH proves the shell is gone.
+    !matches!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH))
 }
 
 fn cleanup_runtime_dir(path: &Path) {

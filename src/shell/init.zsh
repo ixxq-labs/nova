@@ -1,16 +1,43 @@
 # shellcheck shell=zsh
 
 if [[ -n ${_NOVA_ZSH_LOADED:-} ]]; then
+  # A re-sourced init prepared a directory that nothing will claim.
+  () {
+    local prepared=@NOVA_RUNTIME_DIR@
+    [[ ${prepared:t} == nova-init-* ]] || return 0
+    if (( $+builtins[zf_rm] )); then
+      zf_rm -rf -- "$prepared" 2>/dev/null
+    else
+      command rm -rf -- "$prepared" 2>/dev/null
+    fi
+    return 0
+  }
   return
 fi
+
 typeset -g _NOVA_ZSH_LOADED=1
 
 zmodload zsh/datetime zsh/system zsh/zselect 2>/dev/null || true
+zmodload -F zsh/files b:zf_mkdir b:zf_mv b:zf_rm 2>/dev/null || true
 autoload -Uz add-zsh-hook add-zle-hook-widget
 
 typeset -g _nova_bin=@NOVA_BIN@
 typeset -g _nova_cmd_start=
 typeset -g _nova_runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/nova-$$"
+# `nova init zsh` prepares a directory with both FIFOs. Claiming it with an
+# atomic rename hands a saved init script's directory to only one shell; the
+# others fall back to creating their own.
+() {
+  local prepared=@NOVA_RUNTIME_DIR@
+  [[ ${prepared:t} == nova-init-* ]] || return 0
+  local claimed=${prepared:h}/nova-$$-${${prepared:t}#nova-init-}
+  if (( $+builtins[zf_mv] )); then
+    zf_mv -- "$prepared" "$claimed"
+  else
+    command mv -- "$prepared" "$claimed"
+  fi 2>/dev/null && _nova_runtime_dir=$claimed
+  return 0
+}
 typeset -g _nova_req_fifo="$_nova_runtime_dir/req"
 typeset -g _nova_resp_fifo="$_nova_runtime_dir/resp"
 typeset -g _nova_session_token=@NOVA_SESSION_TOKEN@
@@ -32,15 +59,29 @@ typeset -g _nova_nul=$'\0'
 typeset -g _nova_rs=$'\x1e'
 typeset -g _nova_protocol_version=@NOVA_PROTOCOL_VERSION@
 
+_nova_remove_runtime() {
+  emulate -L zsh
+  if (( $+builtins[zf_rm] )); then
+    zf_rm -rf -- "$_nova_runtime_dir" 2>/dev/null
+  else
+    command rm -rf -- "$_nova_runtime_dir" 2>/dev/null
+  fi
+  return 0
+}
+
 _nova_setup_runtime() {
   emulate -L zsh
-  command rm -rf -- "$_nova_runtime_dir" 2>/dev/null || true
-  command mkdir -m 700 -- "$_nova_runtime_dir" || return 1
+  _nova_remove_runtime
+  if (( $+builtins[zf_mkdir] )); then
+    zf_mkdir -m 700 -- "$_nova_runtime_dir" 2>/dev/null || return 1
+  else
+    command mkdir -m 700 -- "$_nova_runtime_dir" || return 1
+  fi
   [[ -d "$_nova_runtime_dir" && -O "$_nova_runtime_dir" ]] || return 1
   command mkfifo -m 600 -- "$_nova_req_fifo" "$_nova_resp_fifo"
   local -i mkfifo_status=$?
   if (( mkfifo_status != 0 )); then
-    command rm -rf -- "$_nova_runtime_dir" 2>/dev/null || true
+    _nova_remove_runtime
   fi
   return $mkfifo_status
 }
@@ -333,11 +374,13 @@ _nova_precmd() {
 _nova_cleanup() {
   emulate -L zsh
   _nova_close_fds
-  command rm -rf -- "$_nova_runtime_dir" 2>/dev/null || true
+  _nova_remove_runtime
 }
 
 if [[ -o interactive ]]; then
   _nova_spawn_worker || true
+else
+  _nova_remove_runtime
 fi
 
 add-zsh-hook preexec _nova_preexec

@@ -1,6 +1,6 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783689800055,
-  "repoUrl": "https://github.com/lemtoc-labs/nova",
+  "lastUpdate": 1793439543656,
+  "repoUrl": "https://github.com/ixxq-labs/nova",
   "entries": {
     "Zsh Interactive Latency": [
       {
@@ -1770,6 +1770,65 @@ window.BENCHMARK_DATA = {
             "range": "3.47 ms",
             "unit": "ms",
             "extra": "median: 21.71 ms\nmin: 20.7 ms\nmax: 35.28 ms\nstddev: 3.47 ms\nruns: 16"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "83203852+ixxq@users.noreply.github.com",
+            "name": "k.suzuki",
+            "username": "ixxq"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "52591b10b2197975d74ea414ca115025d2c6c7d4",
+          "message": "perf(zsh): prepare runtime FIFOs in nova init (#63)\n\n- Create the runtime directory and FIFOs inside `nova init zsh` instead of forking rm/mkdir/mkfifo during shell startup.\n- Claim the prepared directory with an atomic zf_mv rename so saved init scripts never share FIFOs, and clean up the unclaimed one on reload.\n- Use zsh/files builtins for fallback setup and exit cleanup.\n- Check the parent shell with kill(2) instead of forking kill every second.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-10-31T11:12:55+09:00",
+          "tree_id": "376fb8f068478ac7f8c6757efada93322b14363e",
+          "url": "https://github.com/ixxq-labs/nova/commit/52591b10b2197975d74ea414ca115025d2c6c7d4"
+        },
+        "date": 1793439542517,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "first prompt lag",
+            "value": 25.19,
+            "range": "4.08 ms",
+            "unit": "ms",
+            "extra": "median: 25.19 ms\nmin: 23.85 ms\nmax: 41.64 ms\nstddev: 4.08 ms\nruns: 16"
+          },
+          {
+            "name": "first command lag",
+            "value": 25.36,
+            "range": "4.1 ms",
+            "unit": "ms",
+            "extra": "median: 25.36 ms\nmin: 24.03 ms\nmax: 41.88 ms\nstddev: 4.1 ms\nruns: 16"
+          },
+          {
+            "name": "command lag",
+            "value": 0.62,
+            "range": "0.01 ms",
+            "unit": "ms",
+            "extra": "median: 0.62 ms\nmin: 0.6 ms\nmax: 0.65 ms\nstddev: 0.01 ms\nruns: 16"
+          },
+          {
+            "name": "input lag",
+            "value": 0.66,
+            "range": "0.12 ms",
+            "unit": "ms",
+            "extra": "median: 0.66 ms\nmin: 0.33 ms\nmax: 0.79 ms\nstddev: 0.12 ms\nruns: 16"
+          },
+          {
+            "name": "exit time",
+            "value": 12.16,
+            "range": "0.21 ms",
+            "unit": "ms",
+            "extra": "median: 12.16 ms\nmin: 11.71 ms\nmax: 12.47 ms\nstddev: 0.21 ms\nruns: 16"
           }
         ]
       }
